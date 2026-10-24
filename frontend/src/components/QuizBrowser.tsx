@@ -40,13 +40,14 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
   };
 
   return (
-    <div className="view-transition space-y-8">
+    <div className="view-transition space-y-10">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-stone-200">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5 pb-7 border-b border-stone-200">
         <div>
-          <h2 className="text-2xl font-black tracking-tight text-[#1C1C1C]">Available Class Assessments</h2>
-          <p className="text-xs text-stone-500 mt-1">
-            Select an assessment to begin. Responses will be evaluated and recorded to your permanent academic profile.
+          <p className="text-sm font-semibold text-cvsu-green mb-2">Your learning space</p>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#1C1C1C]">Ready for your next check-in?</h2>
+          <p className="text-sm text-stone-600 mt-2 max-w-xl leading-relaxed">
+            Choose an assessment below. Work at your own pace and use the review afterward to see what to revisit.
           </p>
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
@@ -65,7 +66,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
             className="px-5 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-md btn-tactile hover:-translate-y-0.5 cursor-pointer border border-cvsu-vibrant/30"
           >
             <IconBarChart size={14} className="text-cvsu-vibrant" />
-            <span>My Gradebook</span>
+            <span>See my progress</span>
           </button>
         </div>
       </div>
@@ -78,13 +79,13 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
           ))}
         </div>
       ) : quizzes.length === 0 ? (
-        <div className="p-12 text-center bg-[#F7F7F2]/60 border border-dashed border-stone-300 rounded-3xl space-y-3 view-transition">
+        <div className="p-12 text-center bg-[#F7F7F2]/60 border border-dashed border-stone-300 rounded-2xl space-y-3 view-transition">
           <div className="flex justify-center">
             <IconAssessmentIllustration size={80} className="drop-shadow-xs hover:scale-105 transition-transform" />
           </div>
-          <h3 className="text-base font-bold text-[#1C1C1C]">No Published Assessments Available</h3>
-          <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
-            There are currently no active curriculum assessments published by faculty. Check back once your instructor releases an evaluation.
+          <h3 className="text-base font-bold text-[#1C1C1C]">Nothing is waiting for you yet</h3>
+          <p className="text-sm text-stone-600 max-w-sm mx-auto leading-relaxed">
+            Your instructor has not published an assessment. You can check again later.
           </p>
           <div className="pt-2">
             <button
@@ -93,7 +94,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
               className="px-5 py-2.5 bg-white hover:bg-[#F7F7F2] border border-stone-300 text-xs font-bold text-cvsu-green rounded-full transition-all inline-flex items-center gap-2 shadow-xs btn-tactile hover:-translate-y-0.5 cursor-pointer"
             >
               <IconRefresh size={13} />
-              <span>Check for New Assessments</span>
+              <span>Check again</span>
             </button>
           </div>
         </div>
@@ -104,10 +105,10 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
               key={quiz.id}
               type="button"
               onClick={() => onSelectQuiz(quiz.id)}
-              className="w-full text-left p-6 bg-white hover:bg-[#F7F7F2]/60 border border-stone-200 hover:border-cvsu-green rounded-3xl transition-all duration-200 flex items-center justify-between gap-4 group cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5"
+              className="w-full text-left p-5 sm:p-6 bg-white hover:bg-[#F7F7F2]/60 border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-200 flex items-center justify-between gap-4 group cursor-pointer shadow-sm hover:shadow-md"
             >
               <div className="min-w-0 flex-1 space-y-2.5">
-                <p className="text-base sm:text-lg font-bold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors truncate tracking-tight">
+                <p className="text-base sm:text-lg font-semibold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors truncate tracking-tight">
                   {quiz.topic}
                 </p>
                 
@@ -118,7 +119,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                   </span>
                   
                   <span className="text-stone-500 font-medium font-mono text-xs">
-                    {quiz.question_count} Questions
+                    {quiz.question_count} questions
                   </span>
 
                   {quiz.created_by_email && (

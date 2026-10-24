@@ -22,6 +22,7 @@ npm install <package-name>
 uv run uvicorn app.main:app --reload
 uv add <package-name>
 uv run alembic upgrade head
+
 Project Structure
 Maintain domain-driven and layered isolation. Do not dump files into global directories. You must strictly adhere to the following routing and separation of concerns:
 
