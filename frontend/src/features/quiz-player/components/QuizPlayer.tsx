@@ -160,25 +160,25 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
   }, [isTextInput, isGrading, question.options, processAnswer]);
 
   return (
-    <div className="view-transition space-y-8">
+    <div className="view-transition space-y-9">
       {/* Header & Linear Progress */}
       <div className="space-y-3.5 pb-5 border-b border-stone-200">
-        <div className="flex justify-between items-center text-xs font-bold text-stone-600 uppercase tracking-wider">
+        <div className="flex justify-between items-center text-sm font-semibold text-stone-600">
           <div className="flex items-center gap-2.5">
             <span>Question {currentIndex + 1} of {questions.length}</span>
-            <span className="text-[10px] px-3 py-0.5 rounded-full bg-cvsu-light text-cvsu-green border border-cvsu-green/30 font-mono font-bold">
+            <span className="text-xs px-2.5 py-1 rounded-md bg-cvsu-light text-cvsu-green border border-cvsu-green/30 font-medium">
               {question.section_name || itemQuizType}
             </span>
           </div>
-          <span className="font-mono text-xs font-bold text-cvsu-green">
-            {Math.round(progressPercent)}% Complete
+          <span className="text-xs font-medium text-stone-500">
+            {Math.round(progressPercent)}% done
           </span>
         </div>
         
         {/* Animated Linear Progress Bar */}
         <div className="w-full bg-stone-200 rounded-full h-2.5 overflow-hidden">
           <div
-            className="bg-gradient-to-r from-cvsu-green to-cvsu-dark h-full rounded-full transition-all duration-300 ease-out"
+            className="bg-cvsu-green h-full rounded-full transition-all duration-300 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -194,7 +194,7 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
               {question.section_name}
             </p>
           )}
-          <h2 className="text-xl sm:text-2xl font-bold text-[#1C1C1C] leading-relaxed tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-semibold text-[#1C1C1C] leading-relaxed tracking-tight max-w-3xl">
             {question.question}
           </h2>
         </div>
@@ -208,13 +208,13 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
                 type="button"
                 onClick={() => processAnswer(option)}
                 disabled={isGrading}
-                className="w-full text-left p-5 rounded-2xl border border-stone-200 bg-white hover:border-cvsu-green hover:bg-cvsu-light/50 text-[#1C1C1C] hover:text-cvsu-green transition-all duration-150 text-sm sm:text-base flex items-center justify-between gap-4 shadow-xs hover:shadow-md hover:-translate-y-0.5 group btn-tactile disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
+                className="w-full text-left p-5 rounded-xl border border-stone-200 bg-white hover:border-cvsu-green hover:bg-cvsu-light/50 text-[#1C1C1C] hover:text-cvsu-green transition-all duration-150 text-sm sm:text-base flex items-center justify-between gap-4 shadow-xs hover:shadow-md group btn-tactile disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
               >
                 <div className="flex items-center gap-3.5">
-                  <span className="w-7 h-7 rounded-xl font-mono text-xs font-bold flex items-center justify-center shrink-0 bg-[#F7F7F2] group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant text-stone-700 transition-colors border border-stone-200 group-hover:border-cvsu-green">
+                  <span className="w-8 h-8 rounded-md font-semibold text-sm flex items-center justify-center shrink-0 bg-[#F7F7F2] group-hover:bg-cvsu-green group-hover:text-white text-stone-700 transition-colors border border-stone-200 group-hover:border-cvsu-green">
                     {String.fromCharCode(65 + idx)}
                   </span>
-                  <span className="font-semibold group-hover:font-bold transition-all">{option}</span>
+                  <span className="font-medium group-hover:font-semibold transition-all">{option}</span>
                 </div>
 
                 <div className="w-7 h-7 rounded-xl flex items-center justify-center text-stone-300 group-hover:text-cvsu-green transition-colors">
