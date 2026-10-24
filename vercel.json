@@ -1,0 +1,23 @@
+{
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs"
+    },
+    "backend": {
+      "root": "backend",
+      "entrypoint": "main:app"
+    }
+  },
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": { "service": "backend" } },
+    { "source": "/chat", "destination": { "service": "backend" } },
+    { "source": "/quizzes/:path*", "destination": { "service": "backend" } },
+    { "source": "/grades/:path*", "destination": { "service": "backend" } },
+    { "source": "/generate-quiz", "destination": { "service": "backend" } },
+    { "source": "/publish-quiz", "destination": { "service": "backend" } },
+    { "source": "/submit-quiz", "destination": { "service": "backend" } },
+    { "source": "/grade-answer", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
+  ]
+}
