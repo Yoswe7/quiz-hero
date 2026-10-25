@@ -54,3 +54,25 @@ RESEARCH ALIGNMENT
 [ ] Reconcile the model description: the code currently configures Gemini 3.6 Flash, while the research text names Gemini 1.5 Flash.
 [ ] Reconcile the input/output scope: the research text mentions flashcards and DOCX, while the current application supports quiz generation from PDF, images, text, and topic prompts only.
 [ ] Define and implement the research evaluation workflow for interviews, consent, participant codes, feedback capture, and thematic-analysis export outside the production gradebook.
+
+SECURITY AND PRIVACY
+[ ] Add rate limiting for authentication, quiz generation/publishing, AI grading, chat, file uploads, and repeated quiz/submission requests. Use a shared store such as Redis for multi-instance deployment; in-memory limits are only suitable for local development.
+[ ] Add request and concurrency limits for expensive Gemini operations so one account cannot exhaust the API quota or create runaway costs.
+[ ] Verify Google ID tokens cryptographically using Google's published keys, issuer, audience, expiry, and hosted-domain checks. The current `decode_google_jwt` only decodes the payload and does not verify the signature.
+[ ] Remove email-only simulation login before production or research deployment. Restrict authentication to verified Google OAuth identities rather than accepting any typed `@cvsu.edu.ph` address.
+[ ] Require a configured JWT secret at startup and add issuer, audience, expiry, key rotation, and short-lived access-token policies. Do not use a generated fallback secret in deployed environments.
+[ ] Add object-level authorization checks: teachers should only edit, view answer keys for, archive, or delete assessments they own or are explicitly assigned to manage.
+[ ] Restrict quiz access by course/section enrollment instead of exposing every published assessment to every authenticated student.
+[ ] Prevent client-controlled submission fields from affecting grading, especially `quiz_id`, topic, score, answer keys, and item ordering. Verify that the submitted question sequence belongs to the selected quiz.
+[ ] Add server-side request-body limits and validate decoded file bytes, MIME signatures, file extensions, malformed Base64, and decompression risks before sending files to Gemini.
+[ ] Standardize upload limits across the frontend, backend, reverse proxy, and research scope. The current limits and documented limits do not match.
+[ ] Treat uploaded PDFs, notes, and AI output as untrusted content. Add prompt-injection boundaries and reject generated content that includes instructions, secrets, or unsupported source claims.
+[ ] Add security headers including Content-Security-Policy, Strict-Transport-Security in HTTPS environments, X-Content-Type-Options, Referrer-Policy, and frame protections.
+[ ] Keep production CORS origins explicit and environment-specific. Never use wildcard origins with credentials.
+[ ] Replace client-facing exception details with generic error messages and log technical details server-side without exposing secrets or provider responses.
+[ ] Add audit logs for sign-ins, role changes, assessment generation, approval, publication, archive, deletion, answer-key access, and grade changes.
+[ ] Define data-retention and deletion rules for institutional emails, uploaded documents, generated content, submissions, chat messages, and interview data.
+[ ] Keep `.env` and generated databases out of version control, rotate any credentials that may have been committed, and use a deployment secret manager.
+[ ] Use least-privilege database credentials, encrypted connections in deployed environments, backups, and tested restore procedures.
+[ ] Pin and regularly audit Python and npm dependencies for known vulnerabilities.
+[ ] Add automated security tests for unauthenticated access, student/faculty role boundaries, cross-user object access, expired/tampered JWTs, upload limits, prompt-injection inputs, and rate-limit behavior.
