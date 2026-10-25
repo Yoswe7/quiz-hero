@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
 import { publishQuiz, fetchQuizzes, deleteQuiz } from "@/lib/api";
@@ -21,6 +22,7 @@ import {
   IconArrowRight,
 } from "@/components/icons";
 import AIChatbot from "@/components/shared/AIChatbot"; // Adjusted as per instruction
+import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
 
 interface Props {
   currentUser?: CvSUUser;
@@ -68,6 +70,7 @@ const ASSESSMENT_FORMATS: FormatOption[] = [
 ];
 
 export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
+  const router = useRouter();
   const [sourceType, setSourceType] = useState<SourceMaterialType>("topic");
   const [topic, setTopic] = useState("");
   const [notesText, setNotesText] = useState("");
@@ -255,58 +258,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
           </div>
         </div>
 
-        <div className="border-b border-stone-200 pb-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-bold text-[#1C1C1C] tracking-tight">Assessment Preview</h3>
-              <p className="text-xs text-stone-500 mt-0.5">
-                Topic: <span className="font-bold text-cvsu-green">{previewTopic}</span> • {previewQuestions.length} Questions • {quizType}
-              </p>
-            </div>
-            <span className="text-xs font-bold px-3 py-1 rounded-full bg-cvsu-vibrant text-cvsu-dark shadow-xs">
-              Active in Class Pool
-            </span>
-          </div>
-        </div>
-
-        <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-          {previewQuestions.map((q, idx) => (
-            <div key={idx} className="p-4 bg-[#F7F7F2] border border-stone-200 rounded-2xl space-y-3 shadow-xs hover:border-stone-300 transition-colors">
-              <p className="text-sm font-bold text-[#1C1C1C]">
-                <span className="text-stone-400 font-mono text-xs mr-2">{String(idx + 1).padStart(2, "0")}.</span>
-                {q.question}
-              </p>
-              
-              {q.options.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {q.options.map((opt, oidx) => {
-                    const isAnswer = opt === q.answer;
-                    return (
-                      <div
-                        key={oidx}
-                        className={`px-3.5 py-2.5 rounded-xl text-xs font-medium border flex items-center justify-between ${
-                          isAnswer
-                            ? "bg-cvsu-light border-cvsu-green text-cvsu-dark font-bold"
-                            : "bg-white border-stone-200 text-stone-700"
-                        }`}
-                      >
-                        <span>{String.fromCharCode(65 + oidx)}. {opt}</span>
-                        {isAnswer && <span className="text-[10px] uppercase font-bold text-cvsu-green font-mono">✓ Correct</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {q.options.length === 0 && (
-                <div className="p-3 bg-white border border-stone-200 rounded-xl text-xs">
-                  <span className="text-stone-500 font-medium">Model Answer: </span>
-                  <span className="font-bold text-cvsu-green">{q.answer}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <TeacherQuizPreview topic={previewTopic} questions={previewQuestions} quizType={quizType} />
 
         <button
           type="button"
@@ -828,6 +780,14 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/quiz/${q.id}?preview=teacher`)}
+                    className="px-4 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white border border-cvsu-green rounded-full text-xs font-bold transition-all flex items-center gap-1.5 btn-tactile hover:-translate-y-0.5 shadow-xs cursor-pointer"
+                  >
+                    <IconArrowRight size={14} />
+                    <span>Preview</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteQuiz(q.id, q.topic)}
