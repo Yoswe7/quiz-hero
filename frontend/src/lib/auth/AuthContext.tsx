@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { CvSUUser } from "@/types/quiz";
+import { fetchCurrentUser } from "@/lib/api";
 
 interface AuthContextType {
   user: CvSUUser | null;
@@ -19,18 +20,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem("cvsu_user");
+    const restoreSession = async () => {
       const storedToken = localStorage.getItem("cvsu_token");
-      if (storedUser && storedToken) {
-        setUser(JSON.parse(storedUser));
-        setToken(storedToken);
+      if (!storedToken) {
+        setIsLoaded(true);
+        return;
       }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoaded(true);
-    }
+
+      try {
+        const currentUser = await fetchCurrentUser();
+        setUser(currentUser);
+        setToken(storedToken);
+        localStorage.setItem("cvsu_user", JSON.stringify(currentUser));
+      } catch {
+        localStorage.removeItem("cvsu_user");
+        localStorage.removeItem("cvsu_token");
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+
+    void restoreSession();
   }, []);
 
   const login = (newUser: CvSUUser, newToken: string) => {

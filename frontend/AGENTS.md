@@ -19,7 +19,7 @@ npm run dev
 npm install <package-name>
 
 # Backend Execution
-uv run uvicorn app.main:app --reload
+uv run uvicorn main:app --reload
 uv add <package-name>
 uv run alembic upgrade head
 

@@ -60,6 +60,10 @@ export async function authenticateCvSUGoogle(
 
 export const verifyGoogleToken = authenticateCvSUGoogle;
 
+export async function fetchCurrentUser(): Promise<CvSUUser> {
+  return fetchWithAuth(`${API_URL}/auth/me`);
+}
+
 export async function publishQuiz(
   payload: QuizPublishPayload
 ): Promise<{ quiz: { id: string; topic: string; quiz_type: string; questions: Question[] } }> {
