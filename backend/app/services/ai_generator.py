@@ -6,6 +6,10 @@ from typing import Any, Optional
 from app.core.config import get_model
 
 
+QUIZ_TYPES = ("Multiple Choice", "True or False", "Identification", "Open Ended")
+MAX_GENERATION_ATTEMPTS = 3
+
+
 def extract_and_parse_json(raw_text: str) -> Any:
     """Robustly extracts and parses JSON even if wrapped in markdown codeblocks."""
     text = raw_text.strip()
@@ -64,6 +68,9 @@ def build_prompt(
     else:
         base = f"Create a {total_count}-question assessment about {topic}.\n"
 
+    base += f"Return EXACTLY {total_count} objects. Never return fewer or more.\n"
+    base += "Use only facts supported by the topic or supplied source. Do not invent names, terms, dates, or definitions.\n"
+    base += "Each item must test one distinct fact or concept. Do not duplicate or paraphrase another item.\n"
     base += "Respond ONLY with a JSON array of objects without additional text.\n"
 
     if is_mixed and active_sections:
@@ -97,7 +104,7 @@ def build_prompt(
             base += """Each object must have:
 - "question": The question text (should have a specific one-word or short-phrase answer)
 - "quiz_type": "Identification"
-- "answer": The correct answer (a single word or short phrase)
+- "answer": The exact correct answer (one term or short phrase, maximum 8 words)
 - "options": [] (empty array)"""
         elif quiz_type == "Open Ended":
             base += """Each object must have:
@@ -109,20 +116,104 @@ def build_prompt(
     return base
 
 
-def validate_quiz_data(quiz_data: list, quiz_type: str) -> None:
-    if not isinstance(quiz_data, list) or len(quiz_data) == 0:
-        raise ValueError("Response is not a non-empty JSON array")
+def _expected_items(
+    question_count: int,
+    quiz_type: str,
+    sections: Optional[list[dict]],
+) -> list[tuple[str, Optional[str]]]:
+    active_sections = [s for s in (sections or []) if s.get("question_count", 0) > 0]
+    is_mixed = bool(active_sections) or quiz_type == "Mixed Assessment"
 
-    for i, q in enumerate(quiz_data):
-        if "question" not in q or "answer" not in q:
-            raise ValueError(f"Question {i + 1} missing required fields")
+    if not is_mixed:
+        if quiz_type not in QUIZ_TYPES:
+            raise ValueError(f"Unsupported quiz type: {quiz_type}")
+        return [(quiz_type, None)] * question_count
 
-        item_type = q.get("quiz_type", quiz_type)
-        if item_type in ("Multiple Choice", "True or False"):
-            if "options" not in q or not isinstance(q["options"], list) or len(q["options"]) < 2:
-                raise ValueError(f"Question {i + 1} has invalid options")
-            if q["answer"] not in q["options"]:
-                q["options"][0] = q["answer"]
+    if not active_sections:
+        raise ValueError("Mixed Assessment requires at least one configured section")
+
+    expected: list[tuple[str, Optional[str]]] = []
+    roman_numerals = ["I", "II", "III", "IV", "V"]
+    for index, section in enumerate(active_sections):
+        section_type = section.get("quiz_type")
+        section_count = section.get("question_count", 0)
+        if section_type not in QUIZ_TYPES:
+            raise ValueError(f"Unsupported section quiz type: {section_type}")
+        if not isinstance(section_count, int) or section_count < 1:
+            raise ValueError("Section question counts must be positive integers")
+        section_name = f"Part {roman_numerals[min(index, len(roman_numerals) - 1)]}: {section_type}"
+        expected.extend([(section_type, section_name)] * section_count)
+    return expected
+
+
+def _clean_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def validate_quiz_data(
+    quiz_data: list,
+    quiz_type: str,
+    question_count: Optional[int] = None,
+    sections: Optional[list[dict]] = None,
+) -> None:
+    expected_items = _expected_items(question_count or 0, quiz_type, sections)
+    if not isinstance(quiz_data, list):
+        raise ValueError("Response is not a JSON array")
+    if len(quiz_data) != len(expected_items):
+        raise ValueError(f"Expected exactly {len(expected_items)} items but received {len(quiz_data)}")
+
+    seen_questions: set[str] = set()
+    for index, item in enumerate(quiz_data):
+        expected_type, expected_section = expected_items[index]
+        if not isinstance(item, dict):
+            raise ValueError(f"Question {index + 1} is not an object")
+
+        question = _clean_text(item.get("question"))
+        answer = _clean_text(item.get("answer"))
+        item_type = item.get("quiz_type") or expected_type
+        options = item.get("options")
+
+        if not question or not answer:
+            raise ValueError(f"Question {index + 1} must have non-empty question and answer text")
+        if item_type != expected_type:
+            raise ValueError(f"Question {index + 1} must be type '{expected_type}'")
+        if expected_section and item.get("section_name") != expected_section:
+            raise ValueError(f"Question {index + 1} has the wrong section")
+
+        normalized_question = re.sub(r"\s+", " ", question.casefold()).strip()
+        if normalized_question in seen_questions:
+            raise ValueError(f"Question {index + 1} duplicates an earlier question")
+        seen_questions.add(normalized_question)
+
+        if not isinstance(options, list):
+            raise ValueError(f"Question {index + 1} must include an options array")
+        option_text = [_clean_text(option) for option in options]
+        if any(not option for option in option_text):
+            raise ValueError(f"Question {index + 1} contains an empty option")
+
+        if expected_type == "Multiple Choice":
+            if len(option_text) != 4 or len({option.casefold() for option in option_text}) != 4:
+                raise ValueError(f"Question {index + 1} must have exactly 4 unique options")
+            if answer not in option_text:
+                raise ValueError(f"Question {index + 1} answer must match one option exactly")
+        elif expected_type == "True or False":
+            if option_text != ["True", "False"] or answer not in option_text:
+                raise ValueError(f"Question {index + 1} must use True/False options and answer")
+        elif expected_type == "Identification":
+            if option_text or len(answer.split()) > 8 or len(answer) > 100:
+                raise ValueError(f"Question {index + 1} must have one short answer and no options")
+            if re.search(rf"\b{re.escape(answer.casefold())}\b", normalized_question):
+                raise ValueError(f"Question {index + 1} reveals its answer")
+        elif expected_type == "Open Ended":
+            if option_text or len(answer) < 20:
+                raise ValueError(f"Question {index + 1} needs a substantive model answer")
+
+        item["question"] = question
+        item["answer"] = answer
+        item["quiz_type"] = expected_type
+        item["options"] = option_text
+        if expected_section:
+            item["section_name"] = expected_section
 
 
 def generate_quiz(
@@ -137,6 +228,9 @@ def generate_quiz(
     sections: Optional[list[dict]] = None,
 ) -> list[dict]:
     model = get_model()
+    expected_count = sum(
+        section.get("question_count", 0) for section in (sections or [])
+    ) if sections else question_count
     prompt = build_prompt(
         topic=topic,
         question_count=question_count,
@@ -153,18 +247,32 @@ def generate_quiz(
             "mime_type": file_mime_type,
             "data": raw_bytes,
         }
-        contents = [blob_part, prompt]
-        response = model.generate_content(contents)
+        source_contents = [blob_part]
     else:
-        response = model.generate_content(prompt)
+        source_contents = []
 
-    quiz_data = extract_and_parse_json(response.text)
-    validate_quiz_data(quiz_data, quiz_type)
+    last_error = "unknown validation error"
+    for attempt in range(MAX_GENERATION_ATTEMPTS):
+        attempt_prompt = prompt
+        if attempt > 0:
+            attempt_prompt += (
+                f"\nThe previous response failed validation: {last_error}.\n"
+                "Generate a complete replacement array. Do not return a partial repair."
+            )
 
-    for q in quiz_data:
-        if "options" not in q or not isinstance(q["options"], list):
-            q["options"] = []
-        if "quiz_type" not in q:
-            q["quiz_type"] = quiz_type
+        response = model.generate_content([*source_contents, attempt_prompt])
+        try:
+            quiz_data = extract_and_parse_json(response.text)
+            validate_quiz_data(
+                quiz_data,
+                quiz_type,
+                question_count=expected_count,
+                sections=sections,
+            )
+            return quiz_data
+        except (ValueError, json.JSONDecodeError) as error:
+            last_error = str(error)
 
-    return quiz_data
+    raise ValueError(
+        f"AI generated an invalid assessment after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"
+    )
