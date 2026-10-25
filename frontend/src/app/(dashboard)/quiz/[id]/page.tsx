@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { fetchQuizDetail, submitQuiz } from "@/lib/api";
+import { fetchQuizAnswers, fetchQuizDetail, submitQuiz } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import QuizPlayer from "@/features/quiz-player/components/QuizPlayer";
 import ResultsScreen from "@/features/quiz-player/components/ResultsScreen";
+import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
 import { AnswerDetail } from "@/types/quiz";
 
 export default function QuizPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const quizId = params.id as string;
   const { user } = useAuth();
   const router = useRouter();
+  const isTeacherPreview = user?.role === "teacher" || searchParams.get("preview") === "teacher";
 
   const [view, setView] = useState<"quiz" | "results">("quiz");
   const [score, setScore] = useState(0);
@@ -25,8 +28,22 @@ export default function QuizPage() {
     enabled: !!quizId,
   });
 
-  if (isLoading) return <div className="p-8 text-center text-cvsu-green animate-pulse font-medium">Loading Assessment...</div>;
+  const { data: answerData, isLoading: isLoadingAnswers, error: answersError } = useQuery({
+    queryKey: ["quiz-answers", quizId],
+    queryFn: () => fetchQuizAnswers(quizId),
+    enabled: !!quizId && isTeacherPreview,
+  });
+
+  if (isLoading || (isTeacherPreview && isLoadingAnswers)) {
+    return <div className="p-8 text-center text-cvsu-green animate-pulse font-medium">Loading Assessment...</div>;
+  }
   if (error || !quizDetail) return <div className="p-8 text-center text-red-500 font-medium">Failed to load assessment.</div>;
+  if (isTeacherPreview) {
+    if (answersError || !answerData) {
+      return <div className="p-8 text-center text-red-500 font-medium">Failed to load the answer key.</div>;
+    }
+    return <TeacherQuizPreview topic={quizDetail.topic} questions={answerData.questions} quizType={quizDetail.quiz_type} />;
+  }
 
   const handleQuizComplete = (finalScore: number, finalAnswers: AnswerDetail[]) => {
     setScore(finalScore);
