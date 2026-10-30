@@ -98,22 +98,12 @@ export default function CvSUAuthModal({
 
     try {
       const derivedName = deriveNameFromEmail(email);
-      let user: CvSUUser;
-      try {
-        user = await authenticateCvSUGoogle({
-          email: email.toLowerCase(),
-          name: derivedName,
-          role: userRole,
-          is_simulation: true,
-        });
-      } catch {
-        user = {
-          id: 0,
-          full_name: derivedName,
-          email: email.toLowerCase(),
-          role: userRole,
-        };
-      }
+      const user = await authenticateCvSUGoogle({
+        email: email.toLowerCase(),
+        name: derivedName,
+        role: userRole,
+        is_simulation: true,
+      });
 
       localStorage.setItem("cvsu_user", JSON.stringify(user));
       onLoginSuccess(user);
