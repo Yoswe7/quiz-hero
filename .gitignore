@@ -16,6 +16,9 @@ venv/
 .env
 .env.local
 
+# Submodules / Nested Clones
+quiz-hero/
+
 # Node
 node_modules/
 .next/

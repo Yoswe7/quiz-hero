@@ -10,13 +10,15 @@ export default function GradesPage() {
 
   if (!user) return null;
 
+  const normalizedRole: "teacher" | "student" =
+    user.role?.toLowerCase() === "teacher" ? "teacher" : "student";
+
   return (
     <Gradebook
-      role={user.role}
-      studentName={user.full_name}
+      role={normalizedRole}
+      studentName={user.full_name || user.name || user.email.split("@")[0]}
       studentEmail={user.email}
-      onBack={() => router.push(user.role === "teacher" ? "/teacher" : "/student")}
+      onBack={() => router.push(normalizedRole === "teacher" ? "/studio" : "/dashboard")}
     />
   );
 }
-

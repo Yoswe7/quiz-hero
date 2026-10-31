@@ -1,364 +1,409 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
-import { UserRole, CvSUUser } from "@/types/quiz";
-import { authenticateCvSUGoogle } from "@/lib/api";
-import {
-  IconCvSU,
-  IconStudent,
-  IconFaculty,
-  IconArrowRight,
-} from "@/components/icons";
+
+import { useState } from "react";
+import { UserRole, CvSUUser, AuthMode } from "@/types/quiz";
+import { authenticateCvSUGoogle, ApiError } from "@/lib/api";
+import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
+import { IconCvSU } from "@/components/icons";
 
 interface Props {
   initialRole?: UserRole;
+  initialMode?: AuthMode;
   onLoginSuccess: (user: CvSUUser) => void;
   onClose?: () => void;
 }
 
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-
 export default function CvSUAuthModal({
-  initialRole = "student",
+  initialRole = "STUDENT",
+  initialMode = "signin",
   onLoginSuccess,
   onClose,
 }: Props) {
-  const [role, setRole] = useState<UserRole>(initialRole);
-  const [emailInput, setEmailInput] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>(initialMode);
+  const [selectedRole, setSelectedRole] = useState<"STUDENT" | "TEACHER">(
+    initialRole.toUpperCase() === "TEACHER" ? "TEACHER" : "STUDENT"
+  );
+  const [facultyCode, setFacultyCode] = useState("");
+  const [cachedCredential, setCachedCredential] = useState<string | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [infoNotice, setInfoNotice] = useState("");
 
-  useEffect(() => {
-    setRole(initialRole);
-  }, [initialRole]);
-
-  // Lock body scroll on background page when modal is active
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, []);
-
-  // Handle Google Identity Services button
-  useEffect(() => {
-    if (typeof window === "undefined" || !GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
-
-    const handleCredentialResponse = async (response: any) => {
-      setIsLoading(true);
-      setError("");
-      try {
-        const idToken = response.credential;
-        const user = await authenticateCvSUGoogle({ credential: idToken, role });
-        onLoginSuccess(user);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to verify CvSU Google account.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleCredentialResponse,
-        hosted_domain: "cvsu.edu.ph",
-      });
-
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "rectangular",
-        logo_alignment: "left",
-        width: 320,
-      });
-    }
-  }, [role, onLoginSuccess]);
-
-  // Clean Name Helper from email prefix
-  const deriveNameFromEmail = (email: string) => {
-    const prefix = email.split("@")[0].replace(/[._-]/g, " ");
-    return prefix
-      .split(" ")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(" ");
-  };
-
-  const handleCvSULogin = async (email: string, userRole: UserRole) => {
+  const executeAuth = async (
+    credential: string,
+    mode: AuthMode,
+    role?: "STUDENT" | "TEACHER",
+    code?: string
+  ) => {
     setIsLoading(true);
     setError("");
 
-    if (!email.toLowerCase().endsWith("@cvsu.edu.ph")) {
-      setError("Institutional access is restricted to verified @cvsu.edu.ph accounts.");
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const derivedName = deriveNameFromEmail(email);
       const user = await authenticateCvSUGoogle({
-        email: email.toLowerCase(),
-        name: derivedName,
-        role: userRole,
-        is_simulation: true,
+        credential,
+        auth_mode: mode,
+        requested_role: role,
+        faculty_code: code,
       });
-
-      localStorage.setItem("cvsu_user", JSON.stringify(user));
       onLoginSuccess(user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to verify CvSU account credentials.");
+    } catch (err: unknown) {
+      const status = (err as ApiError)?.status;
+      const msg = err instanceof Error ? err.message : "Failed to verify CvSU Google account.";
+
+      // Seamless 404 Recovery: Auto-switch to Sign Up with cached token
+      if (mode === "signin" && status === 404) {
+        setCachedCredential(credential);
+        setAuthMode("signup");
+        setInfoNotice(
+          "Almost done! We verified your CvSU Google account—select your role below to complete registration."
+        );
+        setError("");
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCustomSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!emailInput.trim()) {
-      setError("Please enter your CvSU institutional email or username.");
+  const handleCredentialResponse = async (response: CredentialResponse) => {
+    if (!response.credential) {
+      setError("No Google credential returned. Please try again.");
       return;
     }
-    const clean = emailInput.trim().toLowerCase();
-    const fullEmail = clean.endsWith("@cvsu.edu.ph") ? clean : `${clean}@cvsu.edu.ph`;
-    handleCvSULogin(fullEmail, role);
+
+    if (authMode === "signup" && selectedRole === "TEACHER" && !facultyCode.trim()) {
+      setError("Please enter your official Faculty Verification Code before registering as faculty.");
+      return;
+    }
+
+    await executeAuth(
+      response.credential,
+      authMode,
+      authMode === "signup" ? selectedRole : undefined,
+      authMode === "signup" && selectedRole === "TEACHER" ? facultyCode.trim() : undefined
+    );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md overflow-y-auto modal-backdrop-anim">
-      {/* Background Decorative Ambient Glows */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-cvsu-green/20 rounded-full blur-3xl pointer-events-none" />
+  const handleCompleteRegistration = async () => {
+    if (!cachedCredential) return;
 
-      {/* Main SaaS Modal Container - Centered */}
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-premium-modal border border-slate-200/90 overflow-hidden text-slate-900 mx-auto my-auto modal-box-anim">
-        
+    if (selectedRole === "TEACHER" && !facultyCode.trim()) {
+      setError("Please enter your official Faculty Verification Code before registering as faculty.");
+      return;
+    }
+
+    await executeAuth(
+      cachedCredential,
+      "signup",
+      selectedRole,
+      selectedRole === "TEACHER" ? facultyCode.trim() : undefined
+    );
+  };
+
+  const isFacultyCodeMissing =
+    authMode === "signup" && selectedRole === "TEACHER" && facultyCode.trim().length === 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+      {/* Background Decorative Ambient Glows */}
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-[#14532d]/20 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Main SaaS Modal Container (#ffffff) */}
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden text-slate-900 mx-auto my-auto">
+        {/* Institutional Color Banner */}
+        <div className="h-2 bg-gradient-to-r from-[#14532d] via-[#14532d] to-[#eab308]" />
+
         {/* Close Button */}
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all text-xs font-bold btn-tactile hover:scale-105 cursor-pointer"
+            className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-all text-xs font-bold hover:scale-105 cursor-pointer"
           >
             ✕
           </button>
         )}
 
-        {/* Modal Header */}
-        <div className="pt-8 pb-6 px-8 text-center bg-cvsu-dark text-white border-b border-white/10">
-          <div className="w-14 h-14 rounded-2xl bg-cvsu-vibrant text-cvsu-dark flex items-center justify-center mx-auto mb-3 shadow-md">
-            <IconCvSU size={28} />
-          </div>
-          <div className="flex items-center justify-center gap-2 mb-1">
-            <h2 className="text-2xl font-black tracking-tight text-white">Quiz Hero</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-cvsu-vibrant text-cvsu-dark shadow-xs">
-              CvSU Imus
-            </span>
-          </div>
-          <p className="text-xs text-white/70 font-medium">
-            Cavite State University – Imus Campus
-          </p>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-6 sm:p-8 space-y-6 bg-white">
-          
-          {/* Animated Sliding Pill Role Selector */}
-          <div>
-            <label className="block text-[11px] font-bold text-stone-500 uppercase tracking-wider mb-2">
-              Select Institutional Role
-            </label>
-            <div className="relative grid grid-cols-2 p-1 bg-[#F7F7F2] rounded-full border border-stone-200 text-xs">
-              
-              {/* Sliding Pill Indicator */}
-              <div
-                className="absolute top-1 bottom-1 rounded-full bg-cvsu-green shadow-md spring-transition"
-                style={{
-                  width: "calc(50% - 4px)",
-                  left: role === "student" ? "4px" : "calc(50%)",
-                }}
-              />
-
-              <button
-                type="button"
-                onClick={() => setRole("student")}
-                className={`relative z-10 py-2.5 px-3 rounded-full font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
-                  role === "student" ? "text-white" : "text-stone-600 hover:text-stone-900"
-                }`}
-              >
-                <IconStudent size={16} weight={role === "student" ? "fill" : "regular"} />
-                <span>Student</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setRole("teacher")}
-                className={`relative z-10 py-2.5 px-3 rounded-full font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
-                  role === "teacher" ? "text-white" : "text-stone-600 hover:text-stone-900"
-                }`}
-              >
-                <IconFaculty size={16} weight={role === "teacher" ? "fill" : "regular"} />
-                <span>Faculty / Instructor</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Official Google Identity Button */}
-          {GOOGLE_CLIENT_ID ? (
-            <div>
-              <div ref={googleBtnRef} className="flex justify-center min-h-[44px]" />
-              <div className="relative my-5">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-stone-200" />
-                </div>
-                <div className="relative flex justify-center text-[11px]">
-                  <span className="bg-white px-3 text-stone-400 font-bold uppercase tracking-wider">or sign in with email</span>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Fast-Access Directory Cards */}
-          <div>
-            <label className="block text-[11px] font-bold text-stone-500 uppercase tracking-wider mb-2.5">
-              Verified {role === "student" ? "Student" : "Faculty"} Directory Access
-            </label>
-            <div className="grid grid-cols-1 gap-2.5">
-              {role === "student" ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleCvSULogin("juan.delacruz@cvsu.edu.ph", "student")}
-                    disabled={isLoading}
-                    className="p-3.5 text-left bg-[#F7F7F2] hover:bg-white border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-150 flex items-center justify-between group disabled:opacity-50 btn-tactile hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#1C1C1C] group-hover:text-cvsu-green font-mono truncate">
-                        juan.delacruz@cvsu.edu.ph
-                      </p>
-                      <p className="text-[11px] text-stone-500 mt-0.5">Enrolled Undergraduate Student</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-xl bg-white border border-stone-200 group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant flex items-center justify-center text-stone-400 text-xs transition-colors shrink-0 ml-2 shadow-xs">
-                      <IconArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform duration-150" />
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleCvSULogin("maria.santos@cvsu.edu.ph", "student")}
-                    disabled={isLoading}
-                    className="p-3.5 text-left bg-[#F7F7F2] hover:bg-white border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-150 flex items-center justify-between group disabled:opacity-50 btn-tactile hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#1C1C1C] group-hover:text-cvsu-green font-mono truncate">
-                        maria.santos@cvsu.edu.ph
-                      </p>
-                      <p className="text-[11px] text-stone-500 mt-0.5">Enrolled Undergraduate Student</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-xl bg-white border border-stone-200 group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant flex items-center justify-center text-stone-400 text-xs transition-colors shrink-0 ml-2 shadow-xs">
-                      <IconArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform duration-150" />
-                    </div>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleCvSULogin("r.bautista@cvsu.edu.ph", "teacher")}
-                    disabled={isLoading}
-                    className="p-3.5 text-left bg-[#F7F7F2] hover:bg-white border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-150 flex items-center justify-between group disabled:opacity-50 btn-tactile hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#1C1C1C] group-hover:text-cvsu-green font-mono truncate">
-                        r.bautista@cvsu.edu.ph
-                      </p>
-                      <p className="text-[11px] text-stone-500 mt-0.5">Faculty • Department Chair</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-xl bg-white border border-stone-200 group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant flex items-center justify-center text-stone-400 text-xs transition-colors shrink-0 ml-2 shadow-xs">
-                      <IconArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform duration-150" />
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleCvSULogin("e.ramos@cvsu.edu.ph", "teacher")}
-                    disabled={isLoading}
-                    className="p-3.5 text-left bg-[#F7F7F2] hover:bg-white border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-150 flex items-center justify-between group disabled:opacity-50 btn-tactile hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#1C1C1C] group-hover:text-cvsu-green font-mono truncate">
-                        e.ramos@cvsu.edu.ph
-                      </p>
-                      <p className="text-[11px] text-stone-500 mt-0.5">Faculty • Course Instructor</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-xl bg-white border border-stone-200 group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant flex items-center justify-center text-stone-400 text-xs transition-colors shrink-0 ml-2 shadow-xs">
-                      <IconArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform duration-150" />
-                    </div>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Email-Only Authentication Form */}
-          <form onSubmit={handleCustomSubmit} className="space-y-3 pt-2 border-t border-stone-200">
-            <div>
-              <label htmlFor="cvsu-email-input" className="block text-[11px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-                Or Type Your CvSU Account
-              </label>
-              
-              <div className="flex rounded-2xl border border-stone-300 bg-white overflow-hidden focus-within:ring-4 focus-within:ring-cvsu-green/10 focus-within:border-cvsu-green transition-all shadow-xs">
-                <input
-                  id="cvsu-email-input"
-                  type="text"
-                  placeholder="username or user@cvsu.edu.ph"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full px-4 py-3.5 text-sm text-[#1C1C1C] placeholder:text-stone-400 focus:outline-none bg-transparent"
-                />
-                {!emailInput.toLowerCase().endsWith("@cvsu.edu.ph") && (
-                  <span className="px-4 py-3.5 bg-[#F7F7F2] text-stone-600 font-mono text-xs font-bold border-l border-stone-200 select-none flex items-center shrink-0">
-                    @cvsu.edu.ph
-                  </span>
-                )}
-              </div>
-            </div>
-
+        <div className="p-6 sm:p-8 space-y-5">
+          {/* Top Segmented Tab Control */}
+          <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
             <button
-              type="submit"
-              disabled={isLoading || !emailInput.trim()}
-              className="w-full bg-cvsu-green hover:bg-cvsu-dark text-white font-extrabold py-4 px-6 rounded-full text-sm transition-all shadow-md hover:shadow-lg btn-tactile hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-3 cursor-pointer group border border-cvsu-vibrant/30"
+              type="button"
+              onClick={() => {
+                setAuthMode("signin");
+                setError("");
+                setInfoNotice("");
+              }}
+              className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                authMode === "signin"
+                  ? "bg-white text-[#14532d] shadow-sm border border-slate-200/80"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
             >
-              {isLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Verifying Institutional Account...</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In as {role === "teacher" ? "Faculty" : "Student"}</span>
-                  <IconArrowRight size={16} className="group-hover:translate-x-1 text-cvsu-vibrant transition-transform duration-200" />
-                </>
-              )}
+              🔑 Sign In
             </button>
-          </form>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("signup");
+                setError("");
+              }}
+              className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                authMode === "signup"
+                  ? "bg-[#14532d] text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              ✨ Create Account
+            </button>
+          </div>
+
+          {/* Header */}
+          <div className="text-center space-y-1">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-[#14532d]/10 border border-[#14532d]/20 text-[#14532d] mb-1">
+              <IconCvSU size={28} />
+            </div>
+            <h2 className="text-lg sm:text-xl font-extrabold text-[#14532d]">
+              {authMode === "signin" ? "Welcome Back • CvSU Quiz Hero" : "Create Your Account • CvSU Quiz Hero"}
+            </h2>
+            <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              {authMode === "signin"
+                ? "Sign in with your registered @cvsu.edu.ph Google Workspace account"
+                : "Select your role to initialize your academic workspace"}
+            </p>
+          </div>
+
+          {/* Seamless 404 Transition Notice Banner */}
+          {infoNotice && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs font-medium space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-950">
+                <span>✅</span>
+                <span>Account Verified via Google</span>
+              </div>
+              <p>{infoNotice}</p>
+            </div>
+          )}
 
           {/* Error Banner */}
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs font-bold flex items-center gap-2 view-transition">
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-start gap-2.5">
               <span className="shrink-0 text-base leading-none">⚠️</span>
-              <p>{error}</p>
+              <div className="flex-1">
+                <p className="font-bold">Authentication Notice</p>
+                <p className="mt-0.5">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Loading Indicator */}
+          {isLoading ? (
+            <div className="py-8 flex flex-col items-center justify-center space-y-3">
+              <div className="w-8 h-8 border-3 border-[#14532d]/20 border-t-[#14532d] rounded-full animate-spin" />
+              <p className="text-xs font-semibold text-slate-600">
+                Verifying institutional Google credentials...
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Sign Up Mode: Role Selector & Faculty Verification Code */}
+              {authMode === "signup" && (
+                <div className="space-y-2.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Select Account Role
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedRole("STUDENT");
+                        setError("");
+                      }}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        selectedRole === "STUDENT"
+                          ? "bg-white text-[#14532d] shadow-sm border border-slate-200/80"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <span>🎓</span>
+                      <span>Student</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedRole("TEACHER");
+                        setError("");
+                      }}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        selectedRole === "TEACHER"
+                          ? "bg-[#14532d] text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <span>👨‍🏫</span>
+                      <span>Faculty / Teacher</span>
+                    </button>
+                  </div>
+
+                  {/* Role Guidance / Access Code Card */}
+                  {selectedRole === "STUDENT" ? (
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-200/60 rounded-xl text-emerald-900 text-xs flex items-center gap-2">
+                      <span className="text-base shrink-0">🎓</span>
+                      <p className="leading-snug">
+                        <span className="font-bold">Student Account:</span> 1-Click instant registration for taking quizzes and review.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="modal-faculty-code" className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                          <span>🔑</span>
+                          <span>Faculty Verification Code</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider bg-amber-100/80 px-2 py-0.5 rounded-full">
+                          Required
+                        </span>
+                      </div>
+                      <input
+                        id="modal-faculty-code"
+                        type="password"
+                        value={facultyCode}
+                        onChange={(e) => {
+                          setFacultyCode(e.target.value);
+                          if (error) setError("");
+                        }}
+                        placeholder="Enter department verification code"
+                        className="w-full px-3 py-2 text-xs font-mono bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#14532d] text-slate-800 placeholder:text-slate-400 placeholder:font-sans"
+                      />
+                      <p className="text-[11px] text-amber-800/90 leading-tight">
+                        Enter the institutional code provided by your department.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Primary Action: Cached Credential (Zero Double Popup) or Google Login */}
+              {cachedCredential && authMode === "signup" ? (
+                <div className="space-y-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCompleteRegistration}
+                    disabled={isFacultyCodeMissing}
+                    className="w-full py-3 px-4 bg-[#14532d] hover:bg-[#14532d]/90 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>✨</span>
+                    <span>Complete Registration</span>
+                  </button>
+
+                  {isFacultyCodeMissing && (
+                    <p className="text-center text-[11px] text-amber-700 font-medium">
+                      ⚠️ Please enter your Faculty Verification Code above to enable registration.
+                    </p>
+                  )}
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCachedCredential(null);
+                        setInfoNotice("");
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                    >
+                      Use a different Google account
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium space-y-1.5 text-left">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                        <span>⚠️</span>
+                        <span>Google Client ID Configuration Needed</span>
+                      </div>
+                      <p className="text-slate-600">
+                        Please configure <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-900 font-mono text-[11px]">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-900 font-mono text-[11px]">frontend/.env.local</code>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      {isFacultyCodeMissing && (
+                        <p className="text-center text-[11px] text-amber-700 font-medium mb-2">
+                          ⚠️ Please enter your Faculty Verification Code above to enable Google registration.
+                        </p>
+                      )}
+                      <div
+                        className={`flex justify-center w-full transition-opacity ${
+                          isFacultyCodeMissing ? "pointer-events-none opacity-50 select-none" : ""
+                        }`}
+                      >
+                        <GoogleLogin
+                          onSuccess={handleCredentialResponse}
+                          onError={() => setError("Google Sign-In failed. Please select your @cvsu.edu.ph account.")}
+                          hosted_domain="cvsu.edu.ph"
+                          theme="outline"
+                          size="large"
+                          text={authMode === "signup" ? "signup_with" : "continue_with"}
+                          shape="rectangular"
+                          width="100%"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Bottom Mode Switch Links */}
+              <div className="pt-3 text-center border-t border-slate-100">
+                {authMode === "signin" ? (
+                  <p className="text-xs text-slate-600">
+                    Don&apos;t have an account yet?{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signup");
+                        setError("");
+                      }}
+                      className="font-bold text-[#14532d] hover:underline cursor-pointer"
+                    >
+                      Create an Account
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-600">
+                    Already registered?{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("signin");
+                        setCachedCredential(null);
+                        setInfoNotice("");
+                        setError("");
+                      }}
+                      className="font-bold text-[#14532d] hover:underline cursor-pointer"
+                    >
+                      Sign In
+                    </button>
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 text-center space-y-1">
+                <p className="text-[11px] text-slate-500 font-medium">
+                  🔒 Real-time OAuth 2.0 Hosted Domain Enforcement
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  Personal Gmail accounts (@gmail.com) and unauthorized domains are rejected.
+                </p>
+              </div>
             </div>
           )}
         </div>
       </div>
     </div>
   );
-}
-
-declare global {
-  interface Window {
-    google?: any;
-  }
 }

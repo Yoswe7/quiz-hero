@@ -1,143 +1,77 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { StudentQuestion, QuizType, AnswerDetail } from "@/types/quiz";
-import { fetchQuizAnswers, gradeAnswer } from "@/lib/api";
+import { StudentQuestion, QuizType } from "@/types/quiz";
 import { IconArrowRight } from "@/components/icons";
+
+export interface StudentQuizAnswerInput {
+  question: string;
+  user_answer: string;
+}
 
 interface Props {
   quizId: string;
   questions: StudentQuestion[];
   quizType: QuizType;
-  onComplete: (score: number, answers: AnswerDetail[]) => void;
+  onComplete: (answers: StudentQuizAnswerInput[]) => void;
 }
 
-export default function QuizPlayer({ quizId, questions, quizType, onComplete }: Props) {
+export default function QuizPlayer({ questions, quizType, onComplete }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [score, setScore] = useState(0);
   const [textInput, setTextInput] = useState("");
-  const [isGrading, setIsGrading] = useState(false);
-  const [answerDetails, setAnswerDetails] = useState<AnswerDetail[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recordedAnswers, setRecordedAnswers] = useState<StudentQuizAnswerInput[]>([]);
   const hasCompletedRef = useRef(false);
-  const cachedAnswersRef = useRef<Record<number, string>>({});
 
   const question = questions[currentIndex];
   const itemQuizType = question?.quiz_type || quizType;
   const isTextInput = itemQuizType === "Identification" || itemQuizType === "Open Ended";
   const progressPercent = ((currentIndex + 1) / questions.length) * 100;
 
-  // Pre-load answers once at quiz start to prevent 10x network requests during test
-  useEffect(() => {
-    fetchQuizAnswers(quizId)
-      .then((data) => {
-        const map: Record<number, string> = {};
-        data.questions.forEach((q, idx) => {
-          map[idx] = q.answer;
-        });
-        cachedAnswersRef.current = map;
-      })
-      .catch(() => {
-        // Fallback gracefully if answers endpoint isn't ready
-      });
-  }, [quizId]);
-
   const advanceQuestion = useCallback(() => {
     setTextInput("");
   }, []);
 
   const processAnswer = useCallback(
-    async (userAnswer: string) => {
-      if (isGrading || hasCompletedRef.current) return;
+    (userAnswer: string) => {
+      if (isSubmitting || hasCompletedRef.current) return;
       const cleanAnswer = userAnswer.trim();
       if (!cleanAnswer) return;
 
-      setIsGrading(true);
+      const currentRecord: StudentQuizAnswerInput = {
+        question: question.question,
+        user_answer: cleanAnswer,
+      };
 
-      try {
-        let correctAnswer = cachedAnswersRef.current[currentIndex] || "";
-        if (!correctAnswer) {
-          const answersData = await fetchQuizAnswers(quizId);
-          correctAnswer = answersData.questions[currentIndex]?.answer || "";
-          cachedAnswersRef.current[currentIndex] = correctAnswer;
+      const updated = [...recordedAnswers, currentRecord];
+      setRecordedAnswers(updated);
+
+      if (currentIndex + 1 < questions.length) {
+        setCurrentIndex((prev) => prev + 1);
+        advanceQuestion();
+      } else {
+        if (!hasCompletedRef.current) {
+          hasCompletedRef.current = true;
+          setIsSubmitting(true);
+          onComplete(updated);
         }
-
-        let isCorrect = false;
-        let feedback = "";
-
-        if (itemQuizType === "Multiple Choice" || itemQuizType === "True or False") {
-          isCorrect = cleanAnswer.toLowerCase() === correctAnswer.trim().toLowerCase();
-          feedback = isCorrect ? "Correct choice verified." : `Correct answer: ${correctAnswer}`;
-        } else {
-          try {
-            const result = await gradeAnswer(question.question, correctAnswer, cleanAnswer, itemQuizType);
-            isCorrect = result.is_correct;
-            feedback = result.feedback;
-          } catch {
-            // Local fallback if AI service is temporarily slow
-            isCorrect = cleanAnswer.toLowerCase() === correctAnswer.trim().toLowerCase();
-            feedback = isCorrect ? "Correct answer verified." : `Evaluated. Correct: ${correctAnswer}`;
-          }
-        }
-
-        const newScore = isCorrect ? score + 1 : score;
-        if (isCorrect) setScore(newScore);
-
-        const detail: AnswerDetail = {
-          question: question.question,
-          user_answer: cleanAnswer,
-          correct_answer: correctAnswer,
-          is_correct: isCorrect,
-          ai_feedback: feedback,
-        };
-        const updatedDetails = [...answerDetails, detail];
-        setAnswerDetails(updatedDetails);
-
-        // Instant smooth advance
-        if (currentIndex + 1 < questions.length) {
-          setCurrentIndex((prev) => prev + 1);
-          advanceQuestion();
-        } else {
-          if (!hasCompletedRef.current) {
-            hasCompletedRef.current = true;
-            onComplete(newScore, updatedDetails);
-          }
-        }
-      } catch (err) {
-        // Safe fallback: record submission without dropping data
-        const fallbackDetail: AnswerDetail = {
-          question: question.question,
-          user_answer: cleanAnswer,
-          correct_answer: cachedAnswersRef.current[currentIndex] || "",
-          is_correct: false,
-          ai_feedback: "Answer recorded.",
-        };
-        const updatedDetails = [...answerDetails, fallbackDetail];
-        setAnswerDetails(updatedDetails);
-
-        if (currentIndex + 1 < questions.length) {
-          setCurrentIndex((prev) => prev + 1);
-          advanceQuestion();
-        } else {
-          if (!hasCompletedRef.current) {
-            hasCompletedRef.current = true;
-            onComplete(score, updatedDetails);
-          }
-        }
-      } finally {
-        setIsGrading(false);
       }
     },
-    [isGrading, quizId, currentIndex, quizType, question, score, answerDetails, questions.length, onComplete, advanceQuestion]
+    [isSubmitting, currentIndex, question, recordedAnswers, questions.length, onComplete, advanceQuestion]
   );
 
   // Keyboard shortcut listener for Multiple Choice / True or False (Keys 1-4 or A-D)
   useEffect(() => {
-    if (isTextInput || isGrading) return;
+    if (isTextInput || isSubmitting) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent shortcut trigger if user is typing in Hero Bot or any other text field
       const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          (activeEl as HTMLElement).isContentEditable)
+      ) {
         return;
       }
 
@@ -157,7 +91,7 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isTextInput, isGrading, question.options, processAnswer]);
+  }, [isTextInput, isSubmitting, question.options, processAnswer]);
 
   return (
     <div className="view-transition space-y-9">
@@ -207,7 +141,7 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
                 key={idx}
                 type="button"
                 onClick={() => processAnswer(option)}
-                disabled={isGrading}
+                disabled={isSubmitting}
                 className="w-full text-left p-5 rounded-xl border border-stone-200 bg-white hover:border-cvsu-green hover:bg-cvsu-light/50 text-[#1C1C1C] hover:text-cvsu-green transition-all duration-150 text-sm sm:text-base flex items-center justify-between gap-4 shadow-xs hover:shadow-md group btn-tactile disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
               >
                 <div className="flex items-center gap-3.5">
@@ -234,7 +168,7 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
                 className="w-full p-5 bg-white border border-stone-300 rounded-2xl text-sm text-[#1C1C1C] placeholder:text-stone-400 focus:outline-none focus:ring-4 focus:ring-cvsu-green/10 focus:border-cvsu-green min-h-[150px] resize-y shadow-xs leading-relaxed"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                disabled={isGrading}
+                disabled={isSubmitting}
                 autoFocus
               />
             ) : (
@@ -244,7 +178,7 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
                 className="w-full px-5 py-4 bg-white border border-stone-300 rounded-2xl text-sm text-[#1C1C1C] placeholder:text-stone-400 focus:outline-none focus:ring-4 focus:ring-cvsu-green/10 focus:border-cvsu-green shadow-xs"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                disabled={isGrading}
+                disabled={isSubmitting}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && textInput.trim()) processAnswer(textInput.trim());
@@ -255,13 +189,13 @@ export default function QuizPlayer({ quizId, questions, quizType, onComplete }: 
             <button
               type="button"
               onClick={() => textInput.trim() && processAnswer(textInput.trim())}
-              disabled={!textInput.trim() || isGrading}
+              disabled={!textInput.trim() || isSubmitting}
               className="w-full bg-cvsu-green hover:bg-cvsu-dark text-white font-extrabold py-4 px-8 rounded-full text-sm sm:text-base transition-all shadow-lg hover:shadow-xl btn-tactile hover:-translate-y-0.5 disabled:opacity-50 flex items-center justify-center gap-2.5 cursor-pointer border border-cvsu-vibrant/30"
             >
-              {isGrading ? (
+              {isSubmitting ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Evaluating Response...</span>
+                  <span>Submitting to Server for Evaluation...</span>
                 </>
               ) : (
                 <>

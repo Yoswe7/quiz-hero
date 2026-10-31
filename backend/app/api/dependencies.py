@@ -1,5 +1,4 @@
 from typing import AsyncGenerator
-import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -8,7 +7,7 @@ from sqlmodel import SQLModel
 
 from app.core.config import settings
 from app.core.security import decode_access_token
-from app.models import User
+from app.models.user import User, UserRole
 from app.crud.crud_user import get_user_by_email
 
 if settings.DATABASE_URL.startswith("sqlite"):
@@ -33,7 +32,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=True)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -48,8 +47,8 @@ async def get_current_user(
     
     try:
         payload = decode_access_token(token)
-        email = payload.get("sub")
-        if email is None:
+        email = payload.get("email") or payload.get("sub")
+        if not email:
             raise credentials_exception
     except Exception:
         raise credentials_exception
@@ -59,6 +58,26 @@ async def get_current_user(
         raise credentials_exception
         
     return user
+
+async def require_teacher(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    if current_user.role.upper() != UserRole.TEACHER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Faculty / Teacher privileges required."
+        )
+    return current_user
+
+async def require_student(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    if current_user.role.upper() != UserRole.STUDENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Student privileges required."
+        )
+    return current_user
 
 async def init_db() -> None:
     async with engine.begin() as conn:

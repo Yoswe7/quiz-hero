@@ -5,25 +5,27 @@ export type QuizType =
   | "Open Ended"
   | "Mixed Assessment";
 
-export type UserRole = "teacher" | "student";
+export type AuthMode = "signin" | "signup";
+export type UserRole = "STUDENT" | "TEACHER" | "student" | "teacher";
 export type SourceMaterialType = "topic" | "image" | "pdf" | "text";
 
 export interface CvSUUser {
   id: number;
+  google_sub?: string;
   email: string;
+  name?: string;
   full_name: string;
+  avatar_url?: string;
   picture_url?: string;
-  role: UserRole;
+  role: string;
   token?: string;
 }
 
 export interface GoogleAuthPayload {
-  credential?: string;
-  email?: string;
-  name?: string;
-  picture?: string;
-  role: UserRole;
-  is_simulation?: boolean;
+  credential: string;
+  auth_mode: AuthMode;
+  requested_role?: "STUDENT" | "TEACHER";
+  faculty_code?: string;
 }
 
 export interface QuizSection {

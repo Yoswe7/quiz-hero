@@ -22,7 +22,10 @@ class Question(SQLModel, table=True):
     order_index: int = Field(default=0)
 
     quiz: "Quiz" = Relationship(back_populates="questions")
-    options: list[Option] = Relationship(back_populates="question")
+    options: list[Option] = Relationship(
+        back_populates="question",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
 
 class Quiz(SQLModel, table=True):
     __tablename__ = "quizzes"
@@ -35,4 +38,7 @@ class Quiz(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), server_default=func.now())
     )
 
-    questions: list[Question] = Relationship(back_populates="quiz")
+    questions: list[Question] = Relationship(
+        back_populates="quiz",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )

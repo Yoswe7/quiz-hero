@@ -25,7 +25,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { cache: "no-store", ...options, headers });
   
   if (!response.ok) {
     let errorDetail = "An error occurred";
@@ -41,18 +41,38 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   return response.json();
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function authenticateCvSUGoogle(
   payload: GoogleAuthPayload
 ): Promise<CvSUUser> {
-  const response = await fetch(`${API_URL}/auth/google`, {
+  const response = await fetch(`${API_URL}/api/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      credential: payload.credential,
+      auth_mode: payload.auth_mode,
+      requested_role: payload.requested_role || "STUDENT",
+      faculty_code: payload.faculty_code || null,
+    }),
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Authentication failed" }));
-    throw new Error(err.detail || "Authentication failed. Please verify your CvSU Google account.");
+    let errorDetail = "Authentication failed. Access restricted to verified @cvsu.edu.ph Google accounts.";
+    try {
+      const err = await response.json();
+      errorDetail = err.detail || errorDetail;
+    } catch {
+      // non-JSON response fallback
+    }
+    throw new ApiError(errorDetail, response.status);
   }
 
   return response.json();
@@ -61,7 +81,7 @@ export async function authenticateCvSUGoogle(
 export const verifyGoogleToken = authenticateCvSUGoogle;
 
 export async function fetchCurrentUser(): Promise<CvSUUser> {
-  return fetchWithAuth(`${API_URL}/auth/me`);
+  return fetchWithAuth(`${API_URL}/api/auth/me`);
 }
 
 export async function publishQuiz(
@@ -82,8 +102,20 @@ export async function fetchQuizDetail(quizId: string): Promise<QuizDetail> {
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}`);
 }
 
-export async function fetchQuizAnswers(quizId: string): Promise<{ questions: Question[] }> {
+export async function fetchQuizAnswers(
+  quizId: string
+): Promise<{ quiz_id: string; topic: string; quiz_type: string; questions: Question[] }> {
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}/answers`);
+}
+
+export async function updateQuiz(
+  quizId: string,
+  payload: { topic: string; questions: Question[] }
+): Promise<{ message: string; quiz_id: string }> {
+  return fetchWithAuth(`${API_URL}/quizzes/${quizId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function deleteQuiz(quizId: string): Promise<void> {
@@ -116,8 +148,16 @@ export async function submitQuiz(
   topic: string,
   score: number,
   totalQuestions: number,
-  answers: AnswerDetail[]
-): Promise<void> {
+  answers: { question: string; user_answer: string }[] | AnswerDetail[]
+): Promise<{
+  message: string;
+  status: string;
+  score: number;
+  total_questions: number;
+  percentage: number;
+  answers: AnswerDetail[];
+  submission: GradeSubmission;
+}> {
   return fetchWithAuth(`${API_URL}/submit-quiz`, {
     method: "POST",
     body: JSON.stringify({

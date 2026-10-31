@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 
 class QuizSection(BaseModel):
@@ -18,14 +18,17 @@ class QuizRequest(BaseModel):
     file_mime_type: str | None = None
     file_name: str | None = None
 
+class StudentAnswerSubmission(BaseModel):
+    question: str
+    user_answer: str
+    question_id: int | None = None
+
 class QuizSubmissionRequest(BaseModel):
-    student_name: str
-    student_email: str
     quiz_id: str
     topic: str
-    score: float
-    total_questions: int
     answers: list[dict[str, Any]]
+    total_questions: int | None = None
+    score: float | None = None
 
 class GradeAnswerRequest(BaseModel):
     question: str
@@ -38,20 +41,38 @@ class QuizSummaryResponse(BaseModel):
     topic: str
     quiz_type: str
     question_count: int
-    created_by_email: str | None
+    created_by_email: str | None = None
     created_at: datetime
 
-class StudentQuestionResponse(BaseModel):
+class StudentQuestionRead(BaseModel):
+    """
+    Dedicated anti-DevTools stripped question schema for students.
+    Explicitly excludes 'answer', 'correct_answer', and 'explanation'.
+    """
+    id: int | None = None
     question: str
-    options: list[str] | list[dict[str, Any]] | None = None
+    options: list[str] = []
     quiz_type: str
     section_name: str | None = None
 
-class QuizDetailResponse(BaseModel):
+class StudentQuizDetailResponse(BaseModel):
     id: str
     topic: str
     quiz_type: str
     question_count: int
-    created_by_email: str | None
+    created_by_email: str | None = None
     created_at: datetime
-    questions: list[StudentQuestionResponse]
+    questions: list[StudentQuestionRead]
+
+class QuestionUpdate(BaseModel):
+    id: int | None = None
+    question: str
+    options: list[str] = []
+    answer: str
+    quiz_type: str | None = None
+    section_name: str | None = None
+
+class QuizUpdateRequest(BaseModel):
+    topic: str
+    questions: list[QuestionUpdate]
+

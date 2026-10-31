@@ -9,13 +9,15 @@ export default function TeacherPage() {
   const { user, isLoaded } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (isLoaded && user?.role !== "teacher") {
-      router.push("/student");
-    }
-  }, [user, isLoaded, router]);
+  const isTeacher = user?.role?.toUpperCase() === "TEACHER" || user?.role?.toLowerCase() === "teacher";
 
-  if (!isLoaded || user?.role !== "teacher") return null;
+  useEffect(() => {
+    if (isLoaded && !isTeacher) {
+      router.replace("/dashboard");
+    }
+  }, [user, isLoaded, isTeacher, router]);
+
+  if (!isLoaded || !isTeacher || !user) return null;
 
   return (
     <TeacherDashboard
@@ -24,4 +26,3 @@ export default function TeacherPage() {
     />
   );
 }
-

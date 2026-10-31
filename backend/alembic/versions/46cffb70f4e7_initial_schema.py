@@ -27,7 +27,7 @@ def upgrade() -> None:
                existing_type=sa.VARCHAR(),
                type_=sa.DateTime(timezone=True),
                nullable=True)
-        batch_op.create_foreign_key(None, 'users', ['created_by_email'], ['email'])
+        batch_op.create_foreign_key('fk_quizzes_users_email', 'users', ['created_by_email'], ['email'])
         batch_op.drop_column('questions')
 
     with op.batch_alter_table('submissions', schema=None) as batch_op:
@@ -35,7 +35,7 @@ def upgrade() -> None:
                existing_type=sa.VARCHAR(),
                type_=sa.DateTime(timezone=True),
                nullable=True)
-        batch_op.create_foreign_key(None, 'quizzes', ['quiz_id'], ['id'])
+        batch_op.create_foreign_key('fk_submissions_quizzes_id', 'quizzes', ['quiz_id'], ['id'])
 
     with op.batch_alter_table('users', schema=None) as batch_op:
         batch_op.alter_column('created_at',

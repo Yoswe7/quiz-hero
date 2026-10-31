@@ -23,6 +23,7 @@ import {
 } from "@/components/icons";
 import AIChatbot from "@/components/shared/AIChatbot"; // Adjusted as per instruction
 import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
+import AssessmentEditorModal from "@/features/assessment-engine/components/AssessmentEditorModal";
 
 interface Props {
   currentUser?: CvSUUser;
@@ -123,6 +124,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
   });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingQuiz, setEditingQuiz] = useState<{ id: string; topic: string } | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -782,6 +784,14 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
                 <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                   <button
                     type="button"
+                    onClick={() => setEditingQuiz({ id: q.id, topic: q.topic })}
+                    className="px-4 py-2 bg-white hover:bg-stone-50 text-stone-700 hover:text-cvsu-dark border border-stone-200 hover:border-stone-300 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 btn-tactile hover:-translate-y-0.5 shadow-xs cursor-pointer"
+                  >
+                    <IconEdit size={14} />
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => router.push(`/quiz/${q.id}?preview=teacher`)}
                     className="px-4 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white border border-cvsu-green rounded-full text-xs font-bold transition-all flex items-center gap-1.5 btn-tactile hover:-translate-y-0.5 shadow-xs cursor-pointer"
                   >
@@ -803,6 +813,17 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
           </div>
         )}
       </div>
+
+      {editingQuiz && (
+        <AssessmentEditorModal
+          quizId={editingQuiz.id}
+          initialTopic={editingQuiz.topic}
+          onClose={() => setEditingQuiz(null)}
+          onSaved={() => {
+            loadQuizzes();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { Question } from "@/types/quiz";
+import { IconArrowLeft } from "@/components/icons";
 
 interface Props {
   topic: string;
@@ -19,13 +21,22 @@ export default function TeacherQuizPreview({ topic, questions, quizType }: Props
             {questions.length} questions · {quizType}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green"
-        >
-          Print test paper
-        </button>
+        <div className="flex items-center gap-2.5">
+          <Link
+            href="/studio"
+            className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green flex items-center gap-1.5 cursor-pointer"
+          >
+            <IconArrowLeft size={15} />
+            <span>Back to Studio</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green cursor-pointer"
+          >
+            Print test paper
+          </button>
+        </div>
       </div>
 
       <article className="bg-white px-1 py-2 text-[#1C1C1C] sm:px-8 sm:py-6 print:px-0 print:py-0">
@@ -47,7 +58,7 @@ export default function TeacherQuizPreview({ topic, questions, quizType }: Props
                 {index + 1}. {question.question}
               </p>
 
-              {question.options.length > 0 ? (
+              {question.options && question.options.length > 0 ? (
                 <div className="grid gap-2 pl-5 text-sm sm:grid-cols-2">
                   {question.options.map((option, optionIndex) => (
                     <p key={option}>

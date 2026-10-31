@@ -1,1 +1,1 @@
-// deleted
+export { default } from "./shared/CvSUAuthModal";
