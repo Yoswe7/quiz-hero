@@ -10,8 +10,8 @@ class ReviewItem(SQLModel, table=True):
     - item_key can reference a question id or arbitrary identifier (e.g., 'quiz:123:item:5').
     """
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_email: str = Field(sa_column=Column("user_email", String, nullable=False), index=True)
-    item_key: str = Field(sa_column=Column("item_key", String, nullable=False), index=True)
+    user_email: str = Field(sa_column=Column("user_email", String, nullable=False))
+    item_key: str = Field(sa_column=Column("item_key", String, nullable=False))
     # SM-2 fields
     repetitions: int = Field(default=0, sa_column=Column("repetitions", Integer, nullable=False))
     interval_days: int = Field(default=0, sa_column=Column("interval_days", Integer, nullable=False))

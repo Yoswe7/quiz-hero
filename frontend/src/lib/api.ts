@@ -177,6 +177,36 @@ export async function fetchGrades(): Promise<GradeSubmission[]> {
   return data.submissions;
 }
 
+export interface StudentProgress {
+  summary: {
+    assessments_completed: number;
+    topics_started: number;
+    average_percentage: number;
+    study_streak_days: number;
+  };
+  srs: {
+    total_items: number;
+    due_reviews: number;
+    reviewed_items: number;
+    mastered_items: number;
+    retention_percentage: number;
+  };
+  topics: {
+    topic: string;
+    attempts: number;
+    average_percentage: number;
+    best_percentage: number;
+    last_percentage: number;
+    last_completed_at: string | null;
+    mastery: "Mastered" | "Developing" | "Needs review";
+  }[];
+  recommendations: { topic: string; reason: string }[];
+}
+
+export async function fetchStudentProgress(): Promise<StudentProgress> {
+  return fetchWithAuth(`${API_URL}/progress`);
+}
+
 export interface ChatMessagePayload {
   role: "user" | "model" | "assistant";
   content: string;
