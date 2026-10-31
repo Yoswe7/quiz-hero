@@ -5,6 +5,50 @@
 
 # Features
 
+OVERALL
+[x] Add a detailed and complete learning progress feature in Gradebook.tsx
+  [x] Topic-level progress
+  [x] Retention or mastery
+  [x] Due reviews
+  [x] Review streaks
+  [x] Spaced-repetition progress
+  [x] Recommended topics to revisit
+[ ] Course/section targeting
+[ ] Pause/resume quiz
+[ ] SRS/Review workflow
+[ ] Error States
+[ ] Mobile/Accessibility verification
+
+Should help students answer:
+[] What should I study next?
+[] Which topic am I weak in?
+[] What is due today?
+[] What have I already completed?
+[] What needs review?
+
+STUDY WORKFLOW
+[ ] Flashcard Generation
+[ ] Student study sets
+[ ] Study commons
+[ ] Shared study materials
+[ ] Due-review page
+[ ] Automatic review-item creation
+
+ACCESSIBILITY
+[ ] Keyboard navigation verification
+[ ] Visible focus states
+[ ] Mobile layout review
+[ ] Accessible controls
+
+ERROR HANDLING
+[ ] “Add course/section enrollment rules so students see only assessments intended for their class.”
+
+If the backend is offline or the request fails, the dashboard can display:
+
+“Nothing is waiting for you yet”
+
+That incorrectly suggests there are no assessments instead of explaining that loading failed. This is especially important because TESTING.md explicitly requires understandable error states.
+
 FACULTY SIDE
 [x] Add a generated quiz preview with answer keys.
 [ ] Add a resizable feature for the generated quiz material before printing.
@@ -22,12 +66,21 @@ FACULTY SIDE
 [ ] Align the displayed file-size limits with the actual backend limits and the research scope.
 
 STUDENT SIDE
+
 [ ] Implement flashcard generation and flashcard study sessions from teacher-approved course material.
 [ ] Add student study sets with create, edit, delete, and organize actions.
 [ ] Add the Student Study Commons for sharing and discovering approved study sets.
 [ ] Add course-code indexing and search for shared study sets and assessments.
 [ ] Add teacher-verified labels and visibility rules for shared student-created materials.
 [ ] Add student study progress beyond quiz scores, including reviewed items, retention, and due reviews.
+
+PUBLISHED ASSESSMENTS
+[ ] Current enrollment filtering
+[ ] Section filtering
+[ ] Course code filtering
+[ ] Assignment targeting
+[ ] Due date
+[ ] "Assigned to me" distinction
 
 SPACED REPETITION
 [ ] Connect the existing SM-2 ReviewItem model and service to registered FastAPI routes.

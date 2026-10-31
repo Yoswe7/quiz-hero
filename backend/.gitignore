@@ -11,6 +11,7 @@ venv/
 *.db
 *.sqlite
 *.sqlite3
+*.db.bak
 
 # Environment - NEVER commit these
 .env

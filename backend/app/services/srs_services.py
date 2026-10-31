@@ -19,17 +19,17 @@ async def get_due_items(session: AsyncSession, user_email: str, limit: int = 50)
     ).where(
         (ReviewItem.next_review_at == None) | (ReviewItem.next_review_at <= now)
     ).limit(limit)
-    result = await session.exec(q)
+    result = await session.execute(q)
     return result.scalars().all()
 
 async def get_item(session: AsyncSession, item_id):
     q = select(ReviewItem).where(ReviewItem.id == item_id)
-    res = await session.exec(q)
+    res = await session.execute(q)
     return res.scalar_one_or_none()
 
 async def create_or_get_item(session: AsyncSession, user_email: str, item_key: str) -> ReviewItem:
     q = select(ReviewItem).where(ReviewItem.user_email == user_email, ReviewItem.item_key == item_key)
-    res = await session.exec(q)
+    res = await session.execute(q)
     item = res.scalar_one_or_none()
     if item:
         return item

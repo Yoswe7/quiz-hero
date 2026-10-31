@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { GradeSubmission } from "@/types/quiz";
-import { fetchGrades } from "@/lib/api";
+import { fetchGrades, fetchStudentProgress, StudentProgress } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconArrowLeft,
@@ -26,6 +26,11 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
   const { data: grades = [], isLoading, refetch } = useQuery({
     queryKey: ["grades", role, studentEmail],
     queryFn: () => fetchGrades(),
+  });
+  const { data: progress, isLoading: isProgressLoading, error: progressError } = useQuery<StudentProgress>({
+    queryKey: ["student-progress", studentEmail],
+    queryFn: fetchStudentProgress,
+    enabled: role === "student",
   });
 
   const filteredGrades = grades.filter((g) => {
@@ -112,6 +117,14 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
       </div>
 
       {/* Search Filter */}
+      {role === "student" && (
+        <StudentProgressPanel
+          progress={progress}
+          isLoading={isProgressLoading}
+          error={progressError}
+        />
+      )}
+
       {grades.length > 0 && (
         <div>
           <input
@@ -324,5 +337,92 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
         </div>
       )}
     </div>
+  );
+}
+
+function StudentProgressPanel({
+  progress,
+  isLoading,
+  error,
+}: {
+  progress?: StudentProgress;
+  isLoading: boolean;
+  error: Error | null;
+}) {
+  if (isLoading) {
+    return <div className="grid gap-3 sm:grid-cols-4">{[1, 2, 3, 4].map((item) => <div key={item} className="skeleton h-24 rounded-2xl" />)}</div>;
+  }
+  if (error || !progress) {
+    return <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700">Progress could not be loaded. Your assessment records are still available below.</div>;
+  }
+
+  const cards = [
+    ["Average score", `${progress.summary.average_percentage}%`],
+    ["Assessments completed", progress.summary.assessments_completed],
+    ["Study streak", `${progress.summary.study_streak_days} days`],
+    ["Due reviews", progress.srs.due_reviews],
+  ];
+
+  return (
+    <section className="space-y-5" aria-labelledby="progress-heading">
+      <div>
+        <p className="text-sm font-semibold text-cvsu-green">Your learning progress</p>
+        <h3 id="progress-heading" className="text-xl font-bold text-[#1C1C1C]">Know what to revisit next</h3>
+        <p className="mt-1 text-xs text-stone-500">Scores show assessment performance; retention grows as you complete review sessions.</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map(([label, value]) => (
+          <div key={label} className="rounded-2xl border border-stone-200 bg-[#F7F7F2] p-4">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500">{label}</p>
+            <p className="mt-2 text-2xl font-black text-cvsu-green">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="rounded-2xl border border-stone-200 bg-white p-5">
+          <h4 className="text-sm font-bold text-[#1C1C1C]">Topic-level mastery</h4>
+          {progress.topics.length === 0 ? (
+            <p className="mt-3 text-xs text-stone-500">Complete an assessment to start tracking topic progress.</p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {progress.topics.map((topic) => (
+                <div key={topic.topic}>
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="truncate font-semibold text-stone-800">{topic.topic}</span>
+                    <span className="shrink-0 font-mono font-bold text-cvsu-green">{topic.average_percentage}%</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-200">
+                    <div className="h-full rounded-full bg-cvsu-green" style={{ width: `${Math.min(topic.average_percentage, 100)}%` }} />
+                  </div>
+                  <p className="mt-1 text-[11px] text-stone-500">{topic.mastery} · {topic.attempts} attempt{topic.attempts === 1 ? "" : "s"} · best {topic.best_percentage}%</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
+          <h4 className="text-sm font-bold text-amber-950">Recommended topics</h4>
+          {progress.recommendations.length === 0 ? (
+            <p className="mt-3 text-xs text-amber-900">No topics need extra attention yet. Keep practicing to maintain your progress.</p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {progress.recommendations.map((recommendation) => (
+                <li key={recommendation.topic} className="text-xs text-amber-950">
+                  <p className="font-bold">{recommendation.topic}</p>
+                  <p className="mt-0.5 text-amber-900/80">{recommendation.reason}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-5 border-t border-amber-200 pt-4 text-xs text-amber-950">
+            <span className="font-bold">{progress.srs.retention_percentage}% retention</span>
+            <span className="text-amber-900/70"> · {progress.srs.reviewed_items}/{progress.srs.total_items} review items practiced</span>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

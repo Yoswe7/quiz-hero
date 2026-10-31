@@ -1,12 +1,17 @@
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.schemas.quiz import QuizSubmissionRequest
-from app.models import Submission, User
+from app.models import ReviewItem, Submission, User
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
 from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission
 from app.crud.crud_quiz import get_quiz_by_id
 from app.services.ai_grader import grade_open_answer
+from app.services.srs_services import create_or_get_item
 
 router = APIRouter()
 
@@ -104,6 +109,13 @@ async def submit_quiz(
     )
     
     new_sub = await create_submission(db, new_sub)
+    for question in official_questions:
+        await create_or_get_item(
+            db,
+            current_user.email,
+            f"quiz:{official_quiz.id}:question:{question.id}",
+        )
+
     return {
         "message": "Quiz submitted and evaluated successfully.",
         "status": "ok",
@@ -112,6 +124,121 @@ async def submit_quiz(
         "percentage": percentage,
         "answers": verified_answers,
         "submission": new_sub
+    }
+
+
+@router.get("/progress")
+async def get_student_progress(
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role.upper() != "STUDENT":
+        raise HTTPException(
+            status_code=403,
+            detail="Student progress is available only for student accounts.",
+        )
+
+    submissions = (
+        await db.execute(
+            select(Submission)
+            .where(Submission.student_email == current_user.email)
+            .order_by(Submission.created_at.asc())
+        )
+    ).scalars().all()
+    review_items = (
+        await db.execute(
+            select(ReviewItem).where(ReviewItem.user_email == current_user.email)
+        )
+    ).scalars().all()
+
+    topics: dict[str, dict[str, float | int | str | None]] = defaultdict(
+        lambda: {
+            "attempts": 0,
+            "average_percentage": 0.0,
+            "best_percentage": 0.0,
+            "last_percentage": 0.0,
+            "last_completed_at": None,
+        }
+    )
+    for submission in submissions:
+        topic = submission.topic.strip() or "Untitled assessment"
+        progress = topics[topic]
+        progress["attempts"] = int(progress["attempts"]) + 1
+        progress["average_percentage"] = float(progress["average_percentage"]) + float(submission.percentage)
+        progress["best_percentage"] = max(float(progress["best_percentage"]), float(submission.percentage))
+        progress["last_percentage"] = float(submission.percentage)
+        progress["last_completed_at"] = submission.created_at
+
+    topic_progress = []
+    for topic, progress in topics.items():
+        attempts = int(progress["attempts"])
+        average = round(float(progress["average_percentage"]) / attempts, 1)
+        topic_progress.append(
+            {
+                "topic": topic,
+                "attempts": attempts,
+                "average_percentage": average,
+                "best_percentage": round(float(progress["best_percentage"]), 1),
+                "last_percentage": round(float(progress["last_percentage"]), 1),
+                "last_completed_at": progress["last_completed_at"],
+                "mastery": (
+                    "Mastered" if average >= 85
+                    else "Developing" if average >= 70
+                    else "Needs review"
+                ),
+            }
+        )
+    topic_progress.sort(key=lambda item: (item["average_percentage"], item["topic"]))
+
+    study_dates = {
+        submission.created_at.date()
+        for submission in submissions
+        if submission.created_at
+    }
+    streak = 0
+    cursor = date.today()
+    while cursor in study_dates:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    now = datetime.utcnow()
+    due_reviews = sum(
+        1
+        for item in review_items
+        if item.next_review_at is None or item.next_review_at <= now
+    )
+    reviewed_items = sum(1 for item in review_items if item.last_reviewed_at is not None)
+    mastered_items = sum(1 for item in review_items if item.repetitions >= 3)
+    retention = round(
+        (mastered_items / len(review_items)) * 100, 1
+    ) if review_items else 0.0
+    recommendations = [
+        {
+            "topic": item["topic"],
+            "reason": f"Average score is {item['average_percentage']:.1f}%. Revisit this topic before your next assessment.",
+        }
+        for item in topic_progress
+        if item["average_percentage"] < 75
+    ][:3]
+
+    return {
+        "summary": {
+            "assessments_completed": len(submissions),
+            "topics_started": len(topic_progress),
+            "average_percentage": round(
+                sum(float(item["percentage"]) for item in submissions) / len(submissions), 1
+            ) if submissions else 0.0,
+            "study_streak_days": streak,
+        },
+        "srs": {
+            "total_items": len(review_items),
+            "due_reviews": due_reviews,
+            "reviewed_items": reviewed_items,
+            "mastered_items": mastered_items,
+            "retention_percentage": retention,
+        },
+        "topics": topic_progress,
+        "recommendations": recommendations,
     }
 
 
