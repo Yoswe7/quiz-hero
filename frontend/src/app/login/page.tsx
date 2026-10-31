@@ -357,7 +357,7 @@ export default function LoginPage() {
                           size="large"
                           text={authMode === "signup" ? "signup_with" : "continue_with"}
                           shape="rectangular"
-                          width="100%"
+                          width="360"
                         />
                       </div>
                     </div>
