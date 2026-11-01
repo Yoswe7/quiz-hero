@@ -77,6 +77,10 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
   const [notesText, setNotesText] = useState("");
   const [questionCount, setQuestionCount] = useState(5);
   const [quizType, setQuizType] = useState<QuizType>("Multiple Choice");
+  const [courseCode, setCourseCode] = useState("");
+  const [classSection, setClassSection] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [assignedStudentEmails, setAssignedStudentEmails] = useState("");
   
   // Mixed / Multi-section counters
   const [mcCount, setMcCount] = useState(10);
@@ -174,6 +178,20 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
       setError("Please paste lecture notes or course text.");
       return;
     }
+    const assignedEmails = [...new Set(
+      assignedStudentEmails
+        .split(/[\s,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean)
+    )];
+    if (assignedEmails.length === 0) {
+      setError("Enter at least one verified CvSU student email to assign this assessment.");
+      return;
+    }
+    if (assignedEmails.some((email) => !email.endsWith("@cvsu.edu.ph"))) {
+      setError("Every assigned student must use a @cvsu.edu.ph email address.");
+      return;
+    }
 
     setIsLoading(true);
     setError("");
@@ -214,6 +232,10 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
         file_base64: (sourceType === "image" || sourceType === "pdf") ? (fileBase64 || undefined) : undefined,
         file_mime_type: selectedFile?.type,
         file_name: selectedFile?.name,
+        course_code: courseCode.trim() || undefined,
+        class_section: classSection.trim() || undefined,
+        due_at: dueAt ? new Date(dueAt).toISOString() : undefined,
+        assigned_student_emails: assignedEmails,
       };
 
       const result = await publishQuiz(payload);
@@ -686,6 +708,19 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
             </div>
           </div>
         )}
+
+        <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-amber-950">4. Assignment access</p>
+            <p className="mt-1 text-xs text-amber-900/80">Only the listed CvSU student accounts will see this assessment. Existing unassigned assessments are hidden from students.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input aria-label="Course code" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} placeholder="Course code (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+            <input aria-label="Class section" value={classSection} onChange={(e) => setClassSection(e.target.value)} placeholder="Section (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+            <input aria-label="Due date" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+          </div>
+          <textarea aria-label="Assigned student emails" value={assignedStudentEmails} onChange={(e) => setAssignedStudentEmails(e.target.value)} placeholder="Student emails, separated by commas or spaces (e.g. student@cvsu.edu.ph)" rows={3} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+        </div>
 
         {/* Generate Button with CvSU Primary Styling */}
         <button

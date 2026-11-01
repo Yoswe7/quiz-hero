@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Any
 
 class QuizSection(BaseModel):
@@ -17,6 +17,23 @@ class QuizRequest(BaseModel):
     file_base64: str | None = None
     file_mime_type: str | None = None
     file_name: str | None = None
+    course_code: str | None = None
+    class_section: str | None = None
+    due_at: datetime | None = None
+    assigned_student_emails: list[str] = Field(default_factory=list)
+
+    @field_validator("assigned_student_emails")
+    @classmethod
+    def normalize_assigned_emails(cls, value: list[str]) -> list[str]:
+        normalized = {
+            email.strip().lower()
+            for email in value
+            if email.strip()
+        }
+        invalid = [email for email in normalized if not email.endswith("@cvsu.edu.ph")]
+        if invalid:
+            raise ValueError("Assigned students must use verified @cvsu.edu.ph email addresses.")
+        return sorted(normalized)
 
 class StudentAnswerSubmission(BaseModel):
     question: str
@@ -43,6 +60,9 @@ class QuizSummaryResponse(BaseModel):
     question_count: int
     created_by_email: str | None = None
     created_at: datetime
+    course_code: str | None = None
+    class_section: str | None = None
+    due_at: datetime | None = None
 
 class StudentQuestionRead(BaseModel):
     """
@@ -62,6 +82,9 @@ class StudentQuizDetailResponse(BaseModel):
     question_count: int
     created_by_email: str | None = None
     created_at: datetime
+    course_code: str | None = None
+    class_section: str | None = None
+    due_at: datetime | None = None
     questions: list[StudentQuestionRead]
 
 class QuestionUpdate(BaseModel):
@@ -75,4 +98,3 @@ class QuestionUpdate(BaseModel):
 class QuizUpdateRequest(BaseModel):
     topic: str
     questions: list[QuestionUpdate]
-

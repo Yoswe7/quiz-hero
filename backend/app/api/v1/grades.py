@@ -9,7 +9,7 @@ from app.schemas.quiz import QuizSubmissionRequest
 from app.models import ReviewItem, Submission, User
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
 from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission
-from app.crud.crud_quiz import get_quiz_by_id
+from app.crud.crud_quiz import get_quiz_by_id, quiz_is_assigned_to_student
 from app.services.ai_grader import grade_open_answer
 from app.services.srs_services import create_or_get_item
 
@@ -29,6 +29,10 @@ async def submit_quiz(
     official_quiz = await get_quiz_by_id(db, submission_req.quiz_id)
     if not official_quiz:
         raise HTTPException(status_code=404, detail="Assessment not found.")
+    if current_user.role.upper() == "STUDENT" and not quiz_is_assigned_to_student(
+        official_quiz, current_user.email
+    ):
+        raise HTTPException(status_code=403, detail="This assessment is not assigned to your account.")
 
     official_questions = official_quiz.questions or []
     total_q = len(official_questions)

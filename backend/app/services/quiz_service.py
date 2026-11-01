@@ -41,6 +41,12 @@ def validate_source_payload(request: QuizRequest) -> None:
             )
 
 async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: AsyncSession) -> Quiz:
+    if not request.assigned_student_emails:
+        raise HTTPException(
+            status_code=400,
+            detail="Assign this assessment to at least one verified CvSU student email.",
+        )
+
     topic_title = (request.topic or "").strip() or (request.file_name if request.file_name else "Course Assessment")
     count = max(1, min(50, request.question_count))
     raw_sections = getattr(request, "sections", None)
@@ -89,6 +95,11 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         quiz_type=request.quiz_type,
         question_count=len(questions_data),
         created_by_email=user_email,
+        course_code=request.course_code.strip() if request.course_code else None,
+        class_section=request.class_section.strip() if request.class_section else None,
+        due_at=request.due_at,
+        assigned_student_emails=request.assigned_student_emails,
+        is_assigned=True,
         questions=question_objects 
     )
     db.add(new_quiz)

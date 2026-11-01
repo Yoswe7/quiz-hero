@@ -44,6 +44,10 @@ export interface QuizPublishPayload {
   file_base64?: string;
   file_mime_type?: string;
   file_name?: string;
+  course_code?: string;
+  class_section?: string;
+  due_at?: string;
+  assigned_student_emails: string[];
 }
 
 export interface Question {
@@ -68,6 +72,9 @@ export interface PublishedQuiz {
   question_count: number;
   created_by_email?: string;
   created_at: string;
+  course_code?: string;
+  class_section?: string;
+  due_at?: string;
 }
 
 export interface QuizDetail {
@@ -77,6 +84,9 @@ export interface QuizDetail {
   question_count: number;
   created_by_email?: string;
   created_at?: string;
+  course_code?: string;
+  class_section?: string;
+  due_at?: string;
   questions: StudentQuestion[];
 }
 
