@@ -13,7 +13,6 @@ OVERALL
   [x] Review streaks
   [x] Spaced-repetition progress
   [x] Recommended topics to revisit
-[ ] Course/section targeting
 [ ] Pause/resume quiz
 [ ] SRS/Review workflow
 [ ] Error States
@@ -41,13 +40,7 @@ ACCESSIBILITY
 [ ] Accessible controls
 
 ERROR HANDLING
-[ ] “Add course/section enrollment rules so students see only assessments intended for their class.”
-
-If the backend is offline or the request fails, the dashboard can display:
-
-“Nothing is waiting for you yet”
-
-That incorrectly suggests there are no assessments instead of explaining that loading failed. This is especially important because TESTING.md explicitly requires understandable error states.
+[ ] Show a clear error when assessment loading fails instead of an empty-state message.
 
 FACULTY SIDE
 [x] Add a generated quiz preview with answer keys.
@@ -61,7 +54,7 @@ FACULTY SIDE
 
 [ ] Add a archive option to published quizzes that will go to archived quizzes.
 [ ] Add some search filters for verified/published/pending generated quizzes.
-[ ] Add course-code and section metadata to assessments, then support filtering by course code.
+[x] Add course-code and section metadata to assessments, then support explicit student-email assignment filtering.
 [ ] Add DOCX upload and parsing if the research scope continues to promise PDF and DOCX support.
 [ ] Align the displayed file-size limits with the actual backend limits and the research scope.
 
@@ -75,12 +68,11 @@ STUDENT SIDE
 [ ] Add student study progress beyond quiz scores, including reviewed items, retention, and due reviews.
 
 PUBLISHED ASSESSMENTS
-[ ] Current enrollment filtering
-[ ] Section filtering
-[ ] Course code filtering
-[ ] Assignment targeting
-[ ] Due date
-[ ] "Assigned to me" distinction
+[x] Explicit student assignment filtering
+[x] Course-code metadata
+[x] Section metadata
+[x] Due date
+[x] "Assigned to me" distinction
 
 SPACED REPETITION
 [ ] Connect the existing SM-2 ReviewItem model and service to registered FastAPI routes.
@@ -100,7 +92,7 @@ AI GENERATION QUALITY
 AUTHENTICATION AND ACCESS
 [ ] Replace email-only simulation login with verified Google OAuth for production research evaluation.
 [ ] Ensure role assignment cannot be changed by an untrusted client request after authentication.
-[ ] Add course/section enrollment rules so students see only assessments intended for their class.
+[x] Enforce explicit student assignment rules so students see only assessments intended for their account.
 
 RESEARCH ALIGNMENT
 [ ] Reconcile the research stack description with the implementation: the project currently uses Next.js 16, FastAPI, SQLModel/SQLAlchemy, and SQLite by default; it does not use Prisma, Auth.js, or the stated Next.js 14 stack.

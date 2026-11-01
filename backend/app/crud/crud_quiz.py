@@ -22,6 +22,11 @@ async def list_quizzes(db: AsyncSession) -> list[Quiz]:
     result = await db.execute(select(Quiz).order_by(Quiz.created_at.desc()))
     return result.scalars().all()
 
+def quiz_is_assigned_to_student(quiz: Quiz, student_email: str) -> bool:
+    return quiz.is_assigned and student_email.strip().lower() in {
+        email.strip().lower() for email in (quiz.assigned_student_emails or [])
+    }
+
 async def delete_quiz(db: AsyncSession, quiz_id: str) -> bool:
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
@@ -97,4 +102,3 @@ async def update_quiz(
     await db.commit()
     await db.refresh(quiz)
     return quiz
-

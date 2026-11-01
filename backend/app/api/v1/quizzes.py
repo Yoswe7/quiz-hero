@@ -14,7 +14,13 @@ from app.api.dependencies import get_db_session, get_current_user, require_teach
 from app.services.quiz_service import validate_source_payload, publish_quiz_workflow
 from app.services.ai_generator import generate_quiz
 from app.services.ai_grader import grade_open_answer
-from app.crud.crud_quiz import list_quizzes, get_quiz_by_id, delete_quiz, update_quiz
+from app.crud.crud_quiz import (
+    list_quizzes,
+    get_quiz_by_id,
+    delete_quiz,
+    update_quiz,
+    quiz_is_assigned_to_student,
+)
 
 router = APIRouter()
 
@@ -69,6 +75,8 @@ async def publish_quiz_endpoint(
                 "question_count": new_quiz.question_count,
             }
         }
+    except HTTPException:
+        raise
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="AI returned invalid JSON. Please try again.")
     except ValueError as e:
@@ -83,6 +91,8 @@ async def list_quizzes_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     quizzes = await list_quizzes(db)
+    if current_user.role.upper() == "STUDENT":
+        quizzes = [q for q in quizzes if quiz_is_assigned_to_student(q, current_user.email)]
     return {
         "quizzes": [
             {
@@ -91,7 +101,10 @@ async def list_quizzes_endpoint(
                 "quiz_type": q.quiz_type,
                 "question_count": q.question_count,
                 "created_by_email": q.created_by_email,
-                "created_at": q.created_at
+                "created_at": q.created_at,
+                "course_code": q.course_code,
+                "class_section": q.class_section,
+                "due_at": q.due_at,
             }
             for q in quizzes
         ]
@@ -113,6 +126,8 @@ async def get_quiz_endpoint(
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
         raise HTTPException(status_code=404, detail="Assessment not found")
+    if current_user.role.upper() == "STUDENT" and not quiz_is_assigned_to_student(quiz, current_user.email):
+        raise HTTPException(status_code=403, detail="This assessment is not assigned to your account.")
     
     student_questions = []
     for q in quiz.questions:
@@ -133,6 +148,9 @@ async def get_quiz_endpoint(
         question_count=quiz.question_count,
         created_by_email=quiz.created_by_email,
         created_at=quiz.created_at,
+        course_code=quiz.course_code,
+        class_section=quiz.class_section,
+        due_at=quiz.due_at,
         questions=student_questions,
     )
 

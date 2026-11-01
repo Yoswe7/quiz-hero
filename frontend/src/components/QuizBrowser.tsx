@@ -121,6 +121,17 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                   <span className="text-stone-500 font-medium font-mono text-xs">
                     {quiz.question_count} questions
                   </span>
+                  {quiz.course_code && (
+                    <span className="text-stone-500 font-medium">{quiz.course_code}</span>
+                  )}
+                  {quiz.class_section && (
+                    <span className="text-stone-500 font-medium">Section {quiz.class_section}</span>
+                  )}
+                  {quiz.due_at && (
+                    <span className="text-amber-700 font-semibold">
+                      Due {new Date(quiz.due_at).toLocaleString()}
+                    </span>
+                  )}
 
                   {quiz.created_by_email && (
                     <span className="text-stone-400 font-mono text-[11px] hidden sm:inline">

@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import Column, DateTime, func
+from sqlalchemy import Boolean, Column, DateTime, JSON, func
 
 class Option(SQLModel, table=True):
     __tablename__ = "options"
@@ -34,6 +35,14 @@ class Quiz(SQLModel, table=True):
     quiz_type: str
     question_count: int
     created_by_email: str | None = Field(default=None, index=True, foreign_key="users.email")
+    course_code: str | None = Field(default=None, index=True)
+    class_section: str | None = Field(default=None, index=True)
+    due_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    assigned_student_emails: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, default=list),
+    )
+    is_assigned: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now())
     )
