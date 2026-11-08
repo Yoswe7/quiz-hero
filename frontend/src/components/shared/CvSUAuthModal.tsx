@@ -143,7 +143,7 @@ export default function CvSUAuthModal({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              🔑 Sign In
+              Sign In
             </button>
             <button
               type="button"
@@ -157,7 +157,7 @@ export default function CvSUAuthModal({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              ✨ Create Account
+              Create Account
             </button>
           </div>
 
@@ -167,7 +167,7 @@ export default function CvSUAuthModal({
               <IconCvSU size={28} />
             </div>
             <h2 className="text-lg sm:text-xl font-extrabold text-[#14532d]">
-              {authMode === "signin" ? "Welcome Back • CvSU Quiz Hero" : "Create Your Account • CvSU Quiz Hero"}
+              {authMode === "signin" ? "Welcome Back" : "Create Your Account"}
             </h2>
             <p className="text-xs text-slate-500 max-w-xs mx-auto">
               {authMode === "signin"
@@ -180,7 +180,6 @@ export default function CvSUAuthModal({
           {infoNotice && (
             <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs font-medium space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-emerald-950">
-                <span>✅</span>
                 <span>Account Verified via Google</span>
               </div>
               <p>{infoNotice}</p>
@@ -190,7 +189,7 @@ export default function CvSUAuthModal({
           {/* Error Banner */}
           {error && (
             <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-start gap-2.5">
-              <span className="shrink-0 text-base leading-none">⚠️</span>
+              <span className="shrink-0 text-base leading-none"></span>
               <div className="flex-1">
                 <p className="font-bold">Authentication Notice</p>
                 <p className="mt-0.5">{error}</p>
@@ -227,7 +226,6 @@ export default function CvSUAuthModal({
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <span>🎓</span>
                       <span>Student</span>
                     </button>
                     <button
@@ -242,7 +240,6 @@ export default function CvSUAuthModal({
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <span>👨‍🏫</span>
                       <span>Faculty / Teacher</span>
                     </button>
                   </div>
@@ -250,7 +247,7 @@ export default function CvSUAuthModal({
                   {/* Role Guidance / Access Code Card */}
                   {selectedRole === "STUDENT" ? (
                     <div className="p-3 bg-emerald-50/70 border border-emerald-200/60 rounded-xl text-emerald-900 text-xs flex items-center gap-2">
-                      <span className="text-base shrink-0">🎓</span>
+                      <span className="text-base shrink-0"></span>
                       <p className="leading-snug">
                         <span className="font-bold">Student Account:</span> 1-Click instant registration for taking quizzes and review.
                       </p>
@@ -259,7 +256,6 @@ export default function CvSUAuthModal({
                     <div className="space-y-2 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
                       <div className="flex items-center justify-between">
                         <label htmlFor="modal-faculty-code" className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                          <span>🔑</span>
                           <span>Faculty Verification Code</span>
                         </label>
                         <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider bg-amber-100/80 px-2 py-0.5 rounded-full">
@@ -300,7 +296,7 @@ export default function CvSUAuthModal({
 
                   {isFacultyCodeMissing && (
                     <p className="text-center text-[11px] text-amber-700 font-medium">
-                      ⚠️ Please enter your Faculty Verification Code above to enable registration.
+                      Please enter your Faculty Verification Code above to enable registration.
                     </p>
                   )}
 
@@ -322,7 +318,6 @@ export default function CvSUAuthModal({
                   {!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
                     <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium space-y-1.5 text-left">
                       <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <span>⚠️</span>
                         <span>Google Client ID Configuration Needed</span>
                       </div>
                       <p className="text-slate-600">
@@ -333,7 +328,7 @@ export default function CvSUAuthModal({
                     <div>
                       {isFacultyCodeMissing && (
                         <p className="text-center text-[11px] text-amber-700 font-medium mb-2">
-                          ⚠️ Please enter your Faculty Verification Code above to enable Google registration.
+                          Please enter your Faculty Verification Code above to enable Google registration.
                         </p>
                       )}
                       <div
@@ -390,15 +385,6 @@ export default function CvSUAuthModal({
                     </button>
                   </p>
                 )}
-              </div>
-
-              <div className="pt-2 text-center space-y-1">
-                <p className="text-[11px] text-slate-500 font-medium">
-                  🔒 Real-time OAuth 2.0 Hosted Domain Enforcement
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  Personal Gmail accounts (@gmail.com) and unauthorized domains are rejected.
-                </p>
               </div>
             </div>
           )}

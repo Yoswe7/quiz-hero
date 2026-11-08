@@ -143,7 +143,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
         <div className="absolute top-0 right-1/4 w-[650px] h-[450px] bg-cvsu-green/20 rounded-full blur-[120px] pointer-events-none" />
 
         {/* Global Navigation Header / Navbar */}
-        <header className="max-w-7xl mx-auto px-6 sm:px-8 h-20 flex items-center justify-between relative z-20">
+        <header className="max-w-7xl mx-auto px-6 sm:px-8 h-20 flex items-center justify-between relative z-20 bg-[#6F9C89]/90">
           
           {/* Brand Logo & Emblem */}
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onOpenAuth("student")}>
@@ -152,10 +152,10 @@ export default function LandingPage({ onOpenAuth }: Props) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg tracking-tight text-white group-hover:text-cvsu-vibrant transition-colors">
+                <span className="font-syne text-lg tracking-tight text-[#0B3126] group-hover:text-cvsu-vibrant transition-colors">
                   Quiz Hero
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cvsu-vibrant text-cvsu-dark shadow-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cvsu-gold text-cvsu-dark shadow-xs">
                   CvSU Imus
                 </span>
               </div>
@@ -164,34 +164,34 @@ export default function LandingPage({ onOpenAuth }: Props) {
           </div>
 
           {/* Center Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-white/75">
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-[#0B3126]/80">
             <a
               href="#assessments"
-              className="hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
+              className="hover:text-[#0B3126] transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
             >
               Assessments
             </a>
             <a
               href="#ai-generator"
-              className="hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
+              className="hover:text-[#0B3126] transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
             >
               AI Generator
             </a>
             <button
               onClick={() => onOpenAuth("teacher")}
-              className="hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
+              className="hover:text-[#0B3126] transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
             >
               Faculty Studio
             </button>
             <button
               onClick={() => onOpenAuth("teacher")}
-              className="hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
+              className="hover:text-[#0B3126] transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
             >
               Question Bank
             </button>
             <a
               href="#gradebook"
-              className="hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
+              className="hover:text-[#0B3126] transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200"
             >
               Gradebook
             </a>
@@ -237,9 +237,10 @@ export default function LandingPage({ onOpenAuth }: Props) {
             {/* Massive H1 Headline */}
             <motion.h1
               variants={itemFadeUp}
-              className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]"
+              className="font-syne text-4xl sm:text-5xl lg:text-6xl tracking-tight text-white leading-[1.1]"
             >
-              Assessments that grade themselves while you teach.
+              <span className="text-cvsu-vibrant">Assessments</span>{" "}
+              <span className="text-cvsu-gold">that grade themselves while you teach.</span>
             </motion.h1>
 
             {/* Subheadline */}
@@ -256,7 +257,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 whileHover={{ y: -2, boxShadow: "0 15px 30px -8px rgba(14, 116, 68, 0.4)" }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onOpenAuth("student")}
-                className="px-8 py-4 bg-cvsu-green text-white font-bold text-base rounded-full shadow-lg hover:bg-cvsu-dark transition-colors flex items-center justify-center gap-3 cursor-pointer group border border-cvsu-vibrant/30"
+                className="px-8 py-4 bg-[#4B465C] text-[#F4F0E8] font-bold text-base rounded-full shadow-lg hover:bg-[#5A536D] transition-colors flex items-center justify-center gap-3 cursor-pointer group border border-[#6B637A]"
               >
                 <span>Enter as Student</span>
                 <IconArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-200" />
@@ -266,7 +267,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 whileHover={{ x: 3 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onOpenAuth("teacher")}
-                className="px-6 py-4 text-white/90 hover:text-cvsu-vibrant text-sm font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="px-6 py-4 bg-[#4B465C] text-[#F4F0E8] hover:bg-[#5A536D] text-sm font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border border-[#6B637A] rounded-full"
               >
                 <span>Enter as Faculty</span>
                 <span className="text-cvsu-vibrant">→</span>
@@ -436,7 +437,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             </div>
 
             {/* Massive Bold Statement */}
-            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-[#1C1C1C] leading-[1.15]">
+            <h2 className="font-syne text-3xl sm:text-5xl lg:text-6xl tracking-tight text-[#1C1C1C] leading-[1.15]">
               Generate quizzes for Imus Campus students, evaluate responses in real-time, and track institutional mastery.
             </h2>
 
@@ -493,7 +494,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               </span>
             </div>
 
-            <h3 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#1C1C1C] leading-tight">
+            <h3 className="font-syne text-3xl sm:text-4xl lg:text-5xl tracking-tight text-[#1C1C1C] leading-tight">
               Every format, already mastered.
             </h3>
 
@@ -530,7 +531,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               {/* Card Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-100">
                 <div>
-                  <h4 className="text-base font-bold text-[#1C1C1C]">Interactive Assessment Preview</h4>
+                  <h4 className="font-syne text-base text-[#1C1C1C]">Interactive Assessment Preview</h4>
                   <p className="text-xs text-stone-500">Try answering this live sample question</p>
                 </div>
                 <span className="self-start sm:self-auto px-3 py-1 rounded-full bg-cvsu-light text-cvsu-green border border-cvsu-green/30 text-xs font-mono font-semibold flex items-center gap-1.5">
@@ -642,7 +643,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 Institutional Gradebook & Analytics
               </span>
             </div>
-            <h3 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
+            <h3 className="font-syne text-3xl sm:text-4xl lg:text-5xl tracking-tight text-white leading-tight">
               Real-Time Class Performance
             </h3>
             <p className="text-sm sm:text-base text-white/70">
@@ -752,7 +753,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               Ready to Upgrade Your Classroom?
             </span>
 
-            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white leading-tight">
+            <h2 className="font-syne text-3xl sm:text-5xl lg:text-6xl tracking-tight text-white leading-tight">
               Midterms are coming. This time, be ready.
             </h2>
 
@@ -766,7 +767,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 whileHover={{ y: -2, boxShadow: "0 15px 30px -8px rgba(14, 116, 68, 0.4)" }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onOpenAuth("student")}
-                className="w-full sm:w-auto px-9 py-4 bg-cvsu-green text-white font-bold text-base rounded-full shadow-lg hover:bg-cvsu-dark transition-colors cursor-pointer border border-cvsu-vibrant/30"
+                className="w-full sm:w-auto px-9 py-4 bg-[#4B465C] text-[#F4F0E8] font-bold text-base rounded-full shadow-lg hover:bg-[#5A536D] transition-colors cursor-pointer border border-[#6B637A]"
               >
                 Enter as Student
               </motion.button>
@@ -775,7 +776,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onOpenAuth("teacher")}
-                className="w-full sm:w-auto px-8 py-4 bg-white/10 hover:bg-white/15 hover:text-cvsu-vibrant text-white font-semibold text-base rounded-full border border-white/20 transition-colors cursor-pointer"
+                className="w-full sm:w-auto px-8 py-4 bg-[#4B465C] hover:bg-[#5A536D] text-[#F4F0E8] font-semibold text-base rounded-full border border-[#6B637A] transition-colors cursor-pointer"
               >
                 Enter as Faculty
               </motion.button>
@@ -792,7 +793,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               <div className="w-8 h-8 rounded-xl bg-cvsu-vibrant text-cvsu-dark flex items-center justify-center">
                 <IconCvSU size={18} />
               </div>
-              <span className="font-bold text-base tracking-tight text-white">Quiz Hero</span>
+              <span className="font-syne text-base tracking-tight text-white">Quiz Hero</span>
             </div>
             <p className="text-xs text-white/60 max-w-sm leading-relaxed">
               Cavite State University – Imus Campus AI-powered assessment generation, semantic grading, and student analytics suite.

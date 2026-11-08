@@ -14,12 +14,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-syne: var(--font-syne);
 
-  --color-cvsu-green: #0E7444;
-  --color-cvsu-dark: #093C29;
-  --color-cvsu-gold: #F3B229;
-  --color-cvsu-light: #EBF7EE;
-  --color-cvsu-vibrant: #02E49B;
+  --color-cvsu-green: #00E699;
+  --color-cvsu-dark: #0B3126;
+  --color-cvsu-gold: #FCE8B2;
+  --color-cvsu-light: #E1F7EE;
+  --color-cvsu-vibrant: #00E699;
+}
+
+.font-syne {
+  font-family: var(--font-syne), "Syne", sans-serif;
+  font-weight: 600;
 }
 
 html {

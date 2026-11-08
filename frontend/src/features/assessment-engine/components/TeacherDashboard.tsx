@@ -304,7 +304,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
       {/* Studio Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-stone-200">
         <div>
-          <h2 className="text-2xl font-black tracking-tight text-[#1C1C1C]">Faculty Assessment Studio</h2>
+          <h2 className="font-syne text-2xl tracking-tight text-[#1C1C1C]">Faculty Assessment Studio</h2>
           <p className="text-xs text-stone-500 mt-1">
             Generate curriculum assessments from topic prompts, lecture photos, PDF slides, or raw notes.
           </p>
@@ -337,7 +337,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
               }}
               className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all btn-tactile hover:-translate-y-0.5 cursor-pointer ${
                 sourceType === "topic"
-                  ? "border-cvsu-green bg-cvsu-green text-white shadow-md ring-2 ring-cvsu-green/20"
+                  ? "border-cvsu-dark bg-cvsu-dark text-white shadow-md ring-2 ring-cvsu-green/20"
                   : "border-stone-200 bg-white text-stone-700 hover:bg-[#F7F7F2] hover:border-stone-300"
               }`}
             >
@@ -353,7 +353,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
               }}
               className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all btn-tactile hover:-translate-y-0.5 cursor-pointer ${
                 sourceType === "image"
-                  ? "border-cvsu-green bg-cvsu-green text-white shadow-md ring-2 ring-cvsu-green/20"
+                  ? "border-cvsu-dark bg-cvsu-dark text-white shadow-md ring-2 ring-cvsu-green/20"
                   : "border-stone-200 bg-white text-stone-700 hover:bg-[#F7F7F2] hover:border-stone-300"
               }`}
             >
@@ -369,7 +369,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
               }}
               className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all btn-tactile hover:-translate-y-0.5 cursor-pointer ${
                 sourceType === "pdf"
-                  ? "border-cvsu-green bg-cvsu-green text-white shadow-md ring-2 ring-cvsu-green/20"
+                  ? "border-cvsu-dark bg-cvsu-dark text-white shadow-md ring-2 ring-cvsu-green/20"
                   : "border-stone-200 bg-white text-stone-700 hover:bg-[#F7F7F2] hover:border-stone-300"
               }`}
             >
@@ -385,7 +385,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
               }}
               className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all btn-tactile hover:-translate-y-0.5 cursor-pointer ${
                 sourceType === "text"
-                  ? "border-cvsu-green bg-cvsu-green text-white shadow-md ring-2 ring-cvsu-green/20"
+                  ? "border-cvsu-dark bg-cvsu-dark text-white shadow-md ring-2 ring-cvsu-green/20"
                   : "border-stone-200 bg-white text-stone-700 hover:bg-[#F7F7F2] hover:border-stone-300"
               }`}
             >
@@ -543,17 +543,17 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
                   onClick={() => setQuizType(format.value)}
                   className={`p-4 text-left rounded-2xl border transition-all duration-200 flex items-start gap-3.5 btn-tactile hover:-translate-y-0.5 cursor-pointer group ${
                     isSelected
-                      ? "border-cvsu-green bg-cvsu-green text-white shadow-md ring-2 ring-cvsu-green/20"
+                      ? "border-cvsu-dark bg-cvsu-dark text-white shadow-md ring-2 ring-cvsu-green/20"
                       : "border-stone-200 bg-white hover:border-cvsu-green/50 hover:bg-[#F7F7F2] text-[#1C1C1C] shadow-xs"
                   }`}
                 >
                   <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 transition-colors ${
-                    isSelected ? "bg-cvsu-vibrant text-cvsu-dark" : "bg-stone-100 text-stone-600 group-hover:bg-cvsu-light group-hover:text-cvsu-green"
+                    isSelected ? "bg-white text-cvsu-dark" : "bg-stone-100 text-stone-600 group-hover:bg-cvsu-light group-hover:text-cvsu-green"
                   }`}>
                     {format.icon}
                   </div>
                   <div>
-                    <p className={`text-sm font-bold tracking-tight transition-colors ${isSelected ? "text-cvsu-vibrant" : "text-[#1C1C1C]"}`}>
+                    <p className={`text-sm font-bold tracking-tight transition-colors ${isSelected ? "text-white" : "text-[#1C1C1C]"}`}>
                       {format.label}
                     </p>
                     <p className={`text-xs mt-0.5 leading-relaxed ${isSelected ? "text-white/75" : "text-stone-500"}`}>
@@ -571,7 +571,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
           <div className="p-6 bg-[#F7F7F2] border border-stone-300/80 rounded-3xl space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-200">
               <div>
-                <h3 className="text-sm font-bold text-[#1C1C1C] uppercase tracking-wider">
+                <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
                   3. Configure Hybrid Exam Sections
                 </h3>
                 <p className="text-xs text-stone-500 mt-0.5">
@@ -727,7 +727,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
           type="button"
           onClick={handlePublish}
           disabled={isLoading}
-          className="w-full bg-cvsu-green hover:bg-cvsu-dark text-white font-extrabold py-4 px-8 rounded-full text-sm sm:text-base transition-all shadow-lg hover:shadow-xl btn-tactile hover:-translate-y-0.5 disabled:opacity-75 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 cursor-pointer group border border-cvsu-vibrant/30"
+          className="w-full bg-cvsu-dark hover:bg-cvsu-green text-white font-extrabold py-4 px-8 rounded-full text-sm sm:text-base transition-all shadow-lg hover:shadow-xl btn-tactile hover:-translate-y-0.5 disabled:opacity-75 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 cursor-pointer group border border-cvsu-green/30"
         >
           {isLoading ? (
             <div className="flex items-center gap-2.5">
@@ -772,7 +772,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
       <div className="pt-8 border-t border-stone-200">
         <div className="flex justify-between items-center mb-5">
           <div>
-            <h3 className="text-sm font-bold text-[#1C1C1C] uppercase tracking-wider">
+            <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
               Published Class Assessments ({quizzes.length})
             </h3>
             <p className="text-xs text-stone-500">Live assessments currently accessible to enrolled students.</p>
