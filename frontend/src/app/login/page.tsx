@@ -152,7 +152,7 @@ export default function LoginPage() {
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              🔑 Sign In
+              Sign In
             </button>
             <button
               type="button"
@@ -166,14 +166,14 @@ export default function LoginPage() {
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              ✨ Create Account
+              Create Account
             </button>
           </div>
 
           {/* Dynamic Tab Header */}
           <div className="text-center space-y-1">
             <h2 className="text-xl font-bold text-slate-900">
-              {authMode === "signin" ? "Welcome Back • CvSU Quiz Hero" : "Create Your Account • CvSU Quiz Hero"}
+              {authMode === "signin" ? "Welcome Back" : "Create Your Account"}
             </h2>
             <p className="text-xs text-slate-500">
               {authMode === "signin"
@@ -186,7 +186,6 @@ export default function LoginPage() {
           {infoNotice && (
             <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs font-medium space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-emerald-950">
-                <span>✅</span>
                 <span>Account Verified via Google</span>
               </div>
               <p>{infoNotice}</p>
@@ -235,7 +234,6 @@ export default function LoginPage() {
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <span>🎓</span>
                       <span>Student</span>
                     </button>
                     <button
@@ -250,7 +248,6 @@ export default function LoginPage() {
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      <span>👨‍🏫</span>
                       <span>Faculty / Teacher</span>
                     </button>
                   </div>
@@ -258,7 +255,7 @@ export default function LoginPage() {
                   {/* Role Guidance / Access Code Card */}
                   {selectedRole === "STUDENT" ? (
                     <div className="p-3 bg-emerald-50/70 border border-emerald-200/60 rounded-xl text-emerald-900 text-xs flex items-center gap-2">
-                      <span className="text-base shrink-0">🎓</span>
+                      <span className="text-base shrink-0"></span>
                       <p className="leading-snug">
                         <span className="font-bold">Student Account:</span> 1-Click instant registration for taking quizzes and review.
                       </p>
@@ -267,7 +264,6 @@ export default function LoginPage() {
                     <div className="space-y-2 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
                       <div className="flex items-center justify-between">
                         <label htmlFor="faculty-code" className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                          <span>🔑</span>
                           <span>Faculty Verification Code</span>
                         </label>
                         <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider bg-amber-100/80 px-2 py-0.5 rounded-full">
@@ -302,13 +298,12 @@ export default function LoginPage() {
                     disabled={isFacultyCodeMissing}
                     className="w-full py-3 px-4 bg-[#14532d] hover:bg-[#14532d]/90 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <span>✨</span>
                     <span>Complete Registration</span>
                   </button>
 
                   {isFacultyCodeMissing && (
                     <p className="text-center text-[11px] text-amber-700 font-medium">
-                      ⚠️ Please enter your Faculty Verification Code above to enable registration.
+                      Please enter your Faculty Verification Code above to enable registration.
                     </p>
                   )}
 
@@ -330,7 +325,6 @@ export default function LoginPage() {
                   {!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
                     <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium space-y-1.5 text-left">
                       <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <span>⚠️</span>
                         <span>Google Client ID Configuration Needed</span>
                       </div>
                       <p className="text-slate-600">
@@ -341,7 +335,7 @@ export default function LoginPage() {
                     <div>
                       {isFacultyCodeMissing && (
                         <p className="text-center text-[11px] text-amber-700 font-medium mb-2">
-                          ⚠️ Please enter your Faculty Verification Code above to enable Google registration.
+                          Please enter your Faculty Verification Code above to enable Google registration.
                         </p>
                       )}
                       <div

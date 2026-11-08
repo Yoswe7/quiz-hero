@@ -45,7 +45,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5 pb-7 border-b border-stone-200">
         <div>
           <p className="text-sm font-semibold text-cvsu-green mb-2">Your learning space</p>
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#1C1C1C]">Ready for your next check-in?</h2>
+          <h2 className="font-syne text-2xl sm:text-3xl tracking-tight text-[#1C1C1C]">Ready for your next check-in?</h2>
           <p className="text-sm text-stone-600 mt-2 max-w-xl leading-relaxed">
             Choose an assessment below. Work at your own pace and use the review afterward to see what to revisit.
           </p>
@@ -63,7 +63,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
           <button
             type="button"
             onClick={onViewGrades}
-            className="px-5 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-md btn-tactile hover:-translate-y-0.5 cursor-pointer border border-cvsu-vibrant/30"
+            className="px-5 py-2 bg-cvsu-dark hover:bg-cvsu-green text-white rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-md btn-tactile hover:-translate-y-0.5 cursor-pointer border border-cvsu-green/30"
           >
             <IconBarChart size={14} className="text-cvsu-vibrant" />
             <span>See my progress</span>
@@ -83,7 +83,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
           <div className="flex justify-center">
             <IconAssessmentIllustration size={80} className="drop-shadow-xs hover:scale-105 transition-transform" />
           </div>
-          <h3 className="text-base font-bold text-[#1C1C1C]">Nothing is waiting for you yet</h3>
+          <h3 className="font-syne text-base text-[#1C1C1C]">Nothing is waiting for you yet</h3>
           <p className="text-sm text-stone-600 max-w-sm mx-auto leading-relaxed">
             Your instructor has not published an assessment. You can check again later.
           </p>
@@ -142,7 +142,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
               </div>
 
               {/* Action Arrow Box with Spring Glide */}
-              <div className="w-12 h-12 rounded-2xl bg-[#F7F7F2] group-hover:bg-cvsu-green group-hover:text-cvsu-vibrant border border-stone-200 group-hover:border-cvsu-green flex items-center justify-center text-stone-400 transition-all duration-200 shrink-0 shadow-xs group-hover:shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-[#F7F7F2] group-hover:bg-cvsu-dark group-hover:text-white border border-stone-200 group-hover:border-cvsu-dark flex items-center justify-center text-stone-400 transition-all duration-200 shrink-0 shadow-xs group-hover:shadow-sm">
                 <IconArrowRight size={18} className="group-hover:translate-x-1 transition-transform duration-200 ease-out" />
               </div>
             </button>

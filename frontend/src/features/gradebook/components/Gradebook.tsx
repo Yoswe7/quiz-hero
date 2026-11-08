@@ -84,7 +84,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
             <IconArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" />
             <span>Return to Dashboard</span>
           </button>
-          <h2 className="text-2xl font-black tracking-tight text-[#1C1C1C]">
+          <h2 className="font-syne text-2xl tracking-tight text-[#1C1C1C]">
             {role === "teacher" ? "Institutional Gradebook" : "Academic Assessment Record"}
           </h2>
           <p className="text-xs text-stone-500 mt-1">
@@ -262,7 +262,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
             {/* Modal Header */}
             <div className="p-6 border-b border-white/10 flex justify-between items-start bg-cvsu-dark text-white">
               <div>
-                <h3 className="text-lg font-bold text-white">{selectedSubmission.topic}</h3>
+                <h3 className="font-syne text-lg text-white">{selectedSubmission.topic}</h3>
                 <p className="text-xs text-white/70 mt-0.5">
                   Student: <span className="font-bold text-cvsu-vibrant">{selectedSubmission.student_name}</span>
                   {selectedSubmission.student_email && ` (${selectedSubmission.student_email})`}
@@ -367,7 +367,7 @@ function StudentProgressPanel({
     <section className="space-y-5" aria-labelledby="progress-heading">
       <div>
         <p className="text-sm font-semibold text-cvsu-green">Your learning progress</p>
-        <h3 id="progress-heading" className="text-xl font-bold text-[#1C1C1C]">Know what to revisit next</h3>
+        <h3 id="progress-heading" className="font-syne text-xl text-[#1C1C1C]">Know what to revisit next</h3>
         <p className="mt-1 text-xs text-stone-500">Scores show assessment performance; retention grows as you complete review sessions.</p>
       </div>
 
@@ -382,7 +382,7 @@ function StudentProgressPanel({
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div className="rounded-2xl border border-stone-200 bg-white p-5">
-          <h4 className="text-sm font-bold text-[#1C1C1C]">Topic-level mastery</h4>
+          <h4 className="font-syne text-sm text-[#1C1C1C]">Topic-level mastery</h4>
           {progress.topics.length === 0 ? (
             <p className="mt-3 text-xs text-stone-500">Complete an assessment to start tracking topic progress.</p>
           ) : (

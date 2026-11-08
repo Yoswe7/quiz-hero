@@ -8,23 +8,15 @@ interface IconProps extends React.SVGProps<SVGSVGElement> {
 
 export function IconCvSU({ className = "", size = 20, ...props }: IconProps) {
   return (
-    <svg
+    <img
+      src="/quiz-hero-logo.png"
       width={size}
       height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      {...props}
-    >
-      <path d="M3 21h18" />
-      <path d="M5 21V10l7-5 7 5v11" />
-      <path d="M9 21v-6h6v6" />
-      <path d="M10 10h4" />
-    </svg>
+      alt="Quiz Hero logo"
+      className={`object-contain ${className}`}
+      draggable={false}
+      {...(props as React.ImgHTMLAttributes<HTMLImageElement>)}
+    />
   );
 }
 

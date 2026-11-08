@@ -43,7 +43,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-base sm:text-lg tracking-tight text-white group-hover:text-cvsu-vibrant transition-colors">
+                <span className="font-syne text-base sm:text-lg tracking-tight text-white group-hover:text-cvsu-vibrant transition-colors">
                   Quiz Hero
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cvsu-vibrant text-cvsu-dark shadow-xs">
@@ -67,7 +67,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     : "text-white/80 hover:text-white hover:bg-white/5"
                 }`}
               >
-                <span>👨‍🏫</span>
                 <span className="hidden md:inline">Faculty Studio</span>
                 <span className="md:hidden">Studio</span>
               </Link>
@@ -80,7 +79,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     : "text-white/80 hover:text-white hover:bg-white/5"
                 }`}
               >
-                <span>🎓</span>
                 <span className="hidden md:inline">Student View</span>
                 <span className="md:hidden">Student</span>
               </Link>
@@ -136,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <footer className="w-full border-t border-stone-200 bg-white py-6 mt-auto">
         <div className="max-w-6xl mx-auto px-4 sm:px-8 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-stone-500 font-medium">
-          <p>Cavite State University &bull; Quiz Hero AI Assessment Suite</p>
+          <p className="font-syne">Cavite State University &bull; Quiz Hero AI Assessment Suite</p>
           <p className="font-mono text-[11px] text-stone-400">Institutional Role-Guarded Access</p>
         </div>
       </footer>
