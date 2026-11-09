@@ -1,17 +1,19 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Depends
 import google.generativeai as genai
 
 from app.schemas.ai import ChatRequest
 from app.models import User
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_optional_current_user
 from app.core.config import settings
 
 router = APIRouter()
 
 @router.post("")
-def chat_with_ai(
+async def chat_with_ai(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User | None = Depends(get_optional_current_user)
 ):
     try:
         if not settings.GEMINI_API_KEY:
@@ -22,11 +24,19 @@ def chat_with_ai(
 
         context_str = f"- Active Assessment Topic: {request.context_topic}" if hasattr(request, 'context_topic') and request.context_topic else ""
 
+        user_name = current_user.full_name if current_user else "Guest"
+        user_role = current_user.role if current_user else "visitor"
+        role_description = (
+            "Faculty / Instructor" if user_role == "teacher"
+            else "Enrolled Student" if user_role == "student"
+            else "Guest / Visitor"
+        )
+
         system_instruction = f"""You are 'Hero Bot' — the dedicated academic AI study assistant and faculty teaching partner for Cavite State University (CvSU) – Imus Campus.
 
 User Information:
-- Name: {current_user.full_name}
-- Role: {current_user.role} ({'Faculty / Instructor' if current_user.role == 'teacher' else 'Enrolled Student'})
+- Name: {user_name}
+- Role: {user_role} ({role_description})
 - Campus: Cavite State University – Imus Campus (CvSU-Imus)
 {context_str}
 
@@ -70,9 +80,20 @@ Tone & Guidelines:
         latest_user_message = recent_messages[-1].content
 
         chat_session = model.start_chat(history=history)
-        response = chat_session.send_message(latest_user_message)
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(chat_session.send_message, latest_user_message),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="The AI service took too long to respond. Please try again.",
+            )
 
         return {"reply": response.text}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process chat: {str(e)}")

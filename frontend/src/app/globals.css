@@ -16,11 +16,11 @@
   --font-mono: var(--font-geist-mono);
   --font-syne: var(--font-syne);
 
-  --color-cvsu-green: #00E699;
+  --color-cvsu-green: #89964A;
   --color-cvsu-dark: #0B3126;
   --color-cvsu-gold: #FCE8B2;
-  --color-cvsu-light: #E1F7EE;
-  --color-cvsu-vibrant: #00E699;
+  --color-cvsu-light: #F1F4D6;
+  --color-cvsu-vibrant: #89964A;
 }
 
 .font-syne {

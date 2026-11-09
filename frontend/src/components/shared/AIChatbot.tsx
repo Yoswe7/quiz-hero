@@ -19,10 +19,10 @@ interface Message {
 }
 
 const DEFAULT_SUGGESTIONS = [
-  "🧪 Explain Data Structures & Algorithms simply",
-  "⚡ Give me a practice quiz question for my exam",
-  "📚 Best study strategies for CvSU Imus midterms",
-  "📑 How do I generate a quiz from my lecture notes?",
+  "Explain Data Structures & Algorithms simply",
+  "Give me a practice quiz question for my exam",
+  "Best study strategies for CvSU Imus midterms",
+  "How do I generate a quiz from my lecture notes?",
 ];
 
 export default function AIChatbot({ currentUser, activeTopic }: Props) {
@@ -33,13 +33,14 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
     {
       id: "welcome-msg",
       role: "model",
-      content: `Kamusta ${currentUser ? currentUser.full_name.split(" ")[0] : "there"}! 👋 I am **Hero Bot**, your AI Study & Assessment Partner at **CvSU – Imus Campus**.\n\nAsk me anything about your lessons, review difficult topics, practice with flash quiz questions, or get study tips for your exams!`,
+      content: `Kamusta ${currentUser ? currentUser.full_name.split(" ")[0] : "there"}! I am **Hero Bot**, your AI Study & Assessment Partner at **CvSU – Imus Campus**.\n\nAsk me anything about your lessons, review difficult topics, practice with flash quiz questions, or get study tips for your exams!`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -70,6 +71,8 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
+    const requestController = new AbortController();
+    requestControllerRef.current = requestController;
 
     try {
       const payload = newMessages
@@ -87,7 +90,8 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
         payload,
         currentUser?.full_name,
         currentUser?.role,
-        activeTopic
+        activeTopic,
+        requestController.signal
       );
 
       const aiMsg: Message = {
@@ -99,16 +103,38 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
 
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+
+      const errorMessage = err instanceof Error
+        ? err.message
+        : "I encountered an issue connecting to the AI service. Please try again.";
       const errorMsg: Message = {
         id: `err-${Date.now()}`,
         role: "model",
-        content: "⚠️ I encountered an issue connecting to the AI service. Please make sure the backend server is running and try again.",
+        content: errorMessage,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
+      requestControllerRef.current = null;
     }
+  };
+
+  const handleStopResponse = () => {
+    requestControllerRef.current?.abort();
+    setIsLoading(false);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `stopped-${Date.now()}`,
+        role: "model",
+        content: "Response stopped.",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      },
+    ]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -324,17 +350,36 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
                   disabled={isLoading}
                   className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-stone-100 rounded-full border border-slate-200 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20 focus:border-cvsu-green text-slate-900 placeholder:text-slate-400"
                 />
-                <button
-                  type="submit"
-                  disabled={isLoading || !input.trim()}
-                  className="w-9 h-9 rounded-full bg-cvsu-green hover:bg-cvsu-dark text-white disabled:opacity-40 flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-xs hover:scale-105"
-                  aria-label="Send Message to Hero Bot"
-                >
-                  <svg className="w-4 h-4 translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13" />
-                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                  </svg>
-                </button>
+                {isLoading ? (
+                  <button
+                    type="button"
+                    onClick={handleStopResponse}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-600 text-white transition-colors hover:bg-cvsu-green"
+                    aria-label="Stop Hero Bot response"
+                    title="Stop Hero Bot response"
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!input.trim()}
+                    className="w-9 h-9 rounded-full bg-cvsu-green hover:bg-cvsu-dark text-white disabled:opacity-40 flex items-center justify-center transition-all shrink-0 cursor-pointer shadow-xs hover:scale-105"
+                    aria-label="Send Message to Hero Bot"
+                  >
+                    <svg className="w-4 h-4 translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="22" y1="2" x2="11" y2="13" />
+                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                  </button>
+                )}
               </form>
             </div>
           </motion.div>
