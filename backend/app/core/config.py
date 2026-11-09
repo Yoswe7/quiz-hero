@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import google.generativeai as genai
 
 class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
+    ENABLE_LOCAL_TEST_AUTH: bool = False
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/quiz_hero"
     GEMINI_API_KEY: str = ""
     JWT_SECRET: str = secrets.token_urlsafe(32)

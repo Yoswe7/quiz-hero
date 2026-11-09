@@ -11,12 +11,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, isLoaded, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isTeacher = user?.role?.toUpperCase() === "TEACHER" || user?.role?.toLowerCase() === "teacher";
+  const isStudentRoute = pathname === "/dashboard" || pathname === "/student" || pathname.startsWith("/quiz");
+  const isTeacherRoute = pathname === "/studio" || pathname === "/teacher";
 
   useEffect(() => {
     if (isLoaded && !user) {
       router.push("/login");
     }
   }, [user, isLoaded, router]);
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+
+    if (isTeacher && isStudentRoute) {
+      router.replace("/studio");
+    } else if (!isTeacher && isTeacherRoute) {
+      router.replace("/dashboard");
+    }
+  }, [isLoaded, isTeacher, isStudentRoute, isTeacherRoute, router, user]);
 
   if (!isLoaded || !user) {
     return (
@@ -26,8 +39,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const isTeacher = user.role?.toUpperCase() === "TEACHER" || user.role?.toLowerCase() === "teacher";
-  const isInStudentMode = pathname === "/dashboard" || pathname === "/student" || pathname.startsWith("/quiz");
+  if ((isTeacher && isStudentRoute) || (!isTeacher && isTeacherRoute)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-cvsu-green font-medium">
+        Redirecting to your workspace...
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F7F2] text-[#1C1C1C] flex flex-col items-center selection:bg-cvsu-vibrant selection:text-cvsu-dark relative view-transition">
@@ -56,34 +74,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </Link>
 
-          {/* Center: Dual-Role Switcher (RENDERED ONLY FOR TEACHER ROLE) */}
-          {isTeacher && (
-            <div className="flex items-center bg-white/10 p-1 rounded-full border border-white/20 text-xs font-semibold shadow-inner">
-              <Link
-                href="/studio"
-                className={`px-3.5 py-1.5 rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
-                  !isInStudentMode
-                    ? "bg-white text-cvsu-dark font-extrabold shadow-sm scale-100"
-                    : "text-white/80 hover:text-white hover:bg-white/5"
-                }`}
-              >
-                <span className="hidden md:inline">Faculty Studio</span>
-                <span className="md:hidden">Studio</span>
-              </Link>
-
-              <Link
-                href="/dashboard"
-                className={`px-3.5 py-1.5 rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
-                  isInStudentMode
-                    ? "bg-cvsu-vibrant text-cvsu-dark font-extrabold shadow-sm scale-100"
-                    : "text-white/80 hover:text-white hover:bg-white/5"
-                }`}
-              >
-                <span className="hidden md:inline">Student View</span>
-                <span className="md:hidden">Student</span>
-              </Link>
-            </div>
-          )}
+          <div className="text-sm font-semibold text-white/80">
+            {isTeacher ? "Faculty Studio" : "Student Studio"}
+          </div>
 
           {/* Right: User Profile & Actions */}
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
@@ -113,17 +106,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
-
-      {/* Faculty Student Preview Notification Banner */}
-      {isTeacher && isInStudentMode && (
-        <div className="w-full bg-[#eab308]/15 border-b border-[#eab308]/30 py-2 px-4 sm:px-8 text-center text-xs font-semibold text-amber-900 flex items-center justify-center gap-2">
-          <span>👁️</span>
-          <span>Faculty Preview Active: You are experiencing published quizzes exactly as students see them.</span>
-          <Link href="/studio" className="underline font-bold text-[#14532d] hover:text-[#166534] ml-2">
-            Return to Faculty Studio &rarr;
-          </Link>
-        </div>
-      )}
 
       {/* Main Content Area */}
       <main className="w-full max-w-6xl px-4 sm:px-8 py-8 sm:py-12 flex-1">

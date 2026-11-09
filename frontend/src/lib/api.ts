@@ -80,6 +80,19 @@ export async function authenticateCvSUGoogle(
 
 export const verifyGoogleToken = authenticateCvSUGoogle;
 
+export async function authenticateLocalTestStudent(): Promise<CvSUUser> {
+  const response = await fetch(`${API_URL}/auth/dev/student`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new ApiError("Local student test authentication is disabled.", response.status);
+  }
+
+  return response.json();
+}
+
 export async function fetchCurrentUser(): Promise<CvSUUser> {
   return fetchWithAuth(`${API_URL}/api/auth/me`);
 }
