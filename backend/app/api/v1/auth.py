@@ -20,6 +20,53 @@ router = APIRouter()
 CVSU_DOMAIN = "@cvsu.edu.ph"
 CVSU_HD = "cvsu.edu.ph"
 
+@router.post("/auth/dev/student", response_model=UserResponse)
+async def authenticate_local_test_student(
+    db: AsyncSession = Depends(get_db_session)
+):
+    if settings.ENVIRONMENT.lower() == "production" or not settings.ENABLE_LOCAL_TEST_AUTH:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Local test authentication is disabled.",
+        )
+
+    email = "local.student@cvsu.edu.ph"
+    name = "Local Student Test Account"
+    user = await get_user_by_email(db, email)
+    if not user:
+        user = await create_user(
+            db=db,
+            email=email,
+            name=name,
+            role=UserRole.STUDENT.value,
+        )
+    elif user.role != UserRole.STUDENT.value:
+        user.role = UserRole.STUDENT.value
+        await db.commit()
+        await db.refresh(user)
+
+    access_token = create_access_token(
+        data={
+            "user_id": user.id,
+            "email": user.email,
+            "role": UserRole.STUDENT.value,
+            "sub": user.email,
+        },
+        expires_delta=timedelta(hours=2),
+    )
+
+    return UserResponse(
+        id=user.id,
+        google_sub=user.google_sub,
+        email=user.email,
+        name=user.name,
+        full_name=user.name,
+        avatar_url=user.avatar_url,
+        picture_url=user.picture_url,
+        role=UserRole.STUDENT.value,
+        token=access_token,
+    )
+
 @router.post("/auth/google", response_model=UserResponse)
 @router.post("/api/auth/google", response_model=UserResponse)
 async def authenticate_google(

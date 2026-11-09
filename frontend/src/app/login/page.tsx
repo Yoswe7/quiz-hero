@@ -4,8 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { authenticateCvSUGoogle, ApiError } from "@/lib/api";
-import { AuthMode, UserRole } from "@/types/quiz";
+import { authenticateCvSUGoogle, authenticateLocalTestStudent, ApiError } from "@/lib/api";
+import { AuthMode } from "@/types/quiz";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -114,6 +114,26 @@ export default function LoginPage() {
 
   const isFacultyCodeMissing =
     authMode === "signup" && selectedRole === "TEACHER" && facultyCode.trim().length === 0;
+  const localTestAuthEnabled =
+    process.env.NODE_ENV !== "production" &&
+    process.env.NEXT_PUBLIC_ENABLE_LOCAL_TEST_AUTH === "true";
+
+  const handleLocalTestLogin = async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const authUser = await authenticateLocalTestStudent();
+      if (!authUser.token) {
+        throw new Error("Missing local test session token.");
+      }
+      login(authUser, authUser.token);
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Local test login failed.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col items-center justify-center p-4 sm:p-6">
@@ -215,6 +235,15 @@ export default function LoginPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {localTestAuthEnabled && (
+                <button
+                  type="button"
+                  onClick={handleLocalTestLogin}
+                  className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100"
+                >
+                  Use local student test account
+                </button>
+              )}
               {/* Sign Up Mode: Role Selector & Faculty Verification Code */}
               {authMode === "signup" && (
                 <div className="space-y-2.5">

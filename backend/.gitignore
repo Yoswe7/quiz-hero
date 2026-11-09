@@ -17,7 +17,6 @@ venv/
 .env
 .env.local
 .env.*
-!.env.example
 
 # UV
 .uv/
