@@ -7,13 +7,15 @@ from app.schemas.ai import ChatRequest
 from app.models import User
 from app.api.dependencies import get_optional_current_user
 from app.core.config import settings
+from app.core.rate_limit import rate_limit
 
 router = APIRouter()
 
 @router.post("")
 async def chat_with_ai(
     request: ChatRequest,
-    current_user: User | None = Depends(get_optional_current_user)
+    current_user: User | None = Depends(get_optional_current_user),
+    _rate_limit: None = Depends(rate_limit(20, 60)),
 ):
     try:
         if not settings.GEMINI_API_KEY:

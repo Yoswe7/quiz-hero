@@ -21,6 +21,7 @@ from app.crud.crud_quiz import (
     update_quiz,
     quiz_is_assigned_to_student,
 )
+from app.core.rate_limit import rate_limit
 
 router = APIRouter()
 
@@ -28,7 +29,8 @@ router = APIRouter()
 @router.post("/generate-quiz")
 async def generate_quiz_endpoint(
     request: QuizRequest,
-    current_user: User = Depends(require_teacher)
+    current_user: User = Depends(require_teacher),
+    _rate_limit: None = Depends(rate_limit(5, 60, authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -61,7 +63,8 @@ async def generate_quiz_endpoint(
 async def publish_quiz_endpoint(
     request: QuizRequest,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(require_teacher)
+    current_user: User = Depends(require_teacher),
+    _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -231,7 +234,8 @@ async def delete_quiz_endpoint_handler(
 @router.post("/grade-answer")
 async def grade_answer_endpoint(
     request: GradeAnswerRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(rate_limit(30, 60, authenticated=True)),
 ):
     try:
         result = grade_open_answer(

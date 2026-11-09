@@ -101,7 +101,7 @@ RESEARCH ALIGNMENT
 [ ] Define and implement the research evaluation workflow for interviews, consent, participant codes, feedback capture, and thematic-analysis export outside the production gradebook.
 
 SECURITY AND PRIVACY
-[ ] Add rate limiting for authentication, quiz generation/publishing, AI grading, chat, file uploads, and repeated quiz/submission requests. Use a shared store such as Redis for multi-instance deployment; in-memory limits are only suitable for local development.
+[x] Add rate limiting for authentication, quiz generation/publishing, AI grading, chat, file uploads, and repeated quiz/submission requests. Uses Redis when `REDIS_URL` is configured; in-memory limits are only suitable for local development.
 [ ] Add request and concurrency limits for expensive Gemini operations so one account cannot exhaust the API quota or create runaway costs.
 [ ] Verify Google ID tokens cryptographically using Google's published keys, issuer, audience, expiry, and hosted-domain checks. The current `decode_google_jwt` only decodes the payload and does not verify the signature.
 [ ] Remove email-only simulation login before production or research deployment. Restrict authentication to verified Google OAuth identities rather than accepting any typed `@cvsu.edu.ph` address.
