@@ -21,7 +21,7 @@ from app.crud.crud_quiz import (
     update_quiz,
     quiz_is_assigned_to_student,
 )
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import gemini_concurrency_limit, rate_limit
 
 router = APIRouter()
 
@@ -31,6 +31,7 @@ async def generate_quiz_endpoint(
     request: QuizRequest,
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(5, 60, authenticated=True)),
+    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -65,6 +66,7 @@ async def publish_quiz_endpoint(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
+    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -236,6 +238,7 @@ async def grade_answer_endpoint(
     request: GradeAnswerRequest,
     current_user: User = Depends(get_current_user),
     _rate_limit: None = Depends(rate_limit(30, 60, authenticated=True)),
+    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
 ):
     try:
         result = grade_open_answer(

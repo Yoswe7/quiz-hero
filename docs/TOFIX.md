@@ -102,7 +102,7 @@ RESEARCH ALIGNMENT
 
 SECURITY AND PRIVACY
 [x] Add rate limiting for authentication, quiz generation/publishing, AI grading, chat, file uploads, and repeated quiz/submission requests. Uses Redis when `REDIS_URL` is configured; in-memory limits are only suitable for local development.
-[ ] Add request and concurrency limits for expensive Gemini operations so one account cannot exhaust the API quota or create runaway costs.
+[x] Add request and concurrency limits for expensive Gemini operations so one account cannot exhaust the API quota or create runaway costs. Gemini operations are rate-limited and capped at two concurrent operations per account by default.
 [ ] Verify Google ID tokens cryptographically using Google's published keys, issuer, audience, expiry, and hosted-domain checks. The current `decode_google_jwt` only decodes the payload and does not verify the signature.
 [ ] Remove email-only simulation login before production or research deployment. Restrict authentication to verified Google OAuth identities rather than accepting any typed `@cvsu.edu.ph` address.
 [ ] Require a configured JWT secret at startup and add issuer, audience, expiry, key rotation, and short-lived access-token policies. Do not use a generated fallback secret in deployed environments.

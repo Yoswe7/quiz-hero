@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     FACULTY_ACCESS_CODE: str = "CVSU_FACULTY_2026"
     REDIS_URL: str = ""
     RATE_LIMIT_ENABLED: bool = True
+    GEMINI_MAX_CONCURRENT_PER_USER: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
