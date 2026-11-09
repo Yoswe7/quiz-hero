@@ -66,35 +66,109 @@ const developers = [
 ];
 
 export default function Developers() {
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-[100] w-full border-b border-[#dce7f7] bg-white/95 text-[#14213d] shadow-sm backdrop-blur-md">
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6 sm:px-8">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cvsu-light text-cvsu-green shadow-sm transition-transform group-hover:scale-105">
-              <IconCvSU size={22} />
-            </div>
-            <div>
-              <span className="font-syne text-lg tracking-tight transition-colors group-hover:text-cvsu-green">
-                Quiz Hero
-              </span>
-              <p className="text-[11px] font-medium text-[#718096]">
-                Cavite State University - Imus Campus
-              </p>
-            </div>
+      <header className="fixed inset-x-0 top-0 z-[100] flex h-20 w-full items-center justify-between border-b border-white/10 bg-cvsu-green/25 px-6 shadow-sm backdrop-blur-lg sm:px-8">
+        <Link href="/" className="group flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-cvsu-vibrant text-cvsu-dark shadow-sm transition-transform duration-200 group-hover:scale-105">
+            <IconCvSU size={22} />
+          </div>
+          <div>
+            <span className="font-syne text-lg tracking-tight text-cvsu-vibrant transition-colors group-hover:text-cvsu-vibrant">
+              Quiz Hero
+            </span>
+            <p className="text-[11px] font-medium text-cvsu-vibrant">
+              Cavite State University – Imus City Campus
+            </p>
+          </div>
+        </Link>
+
+        <nav className="hidden items-center gap-6 text-sm font-medium text-white/75 md:flex lg:gap-8">
+          {[
+            ["Assessments", "/#assessments"],
+            ["AI Generator", "/#ai-generator"],
+            ["Faculty Studio", "/login"],
+            ["Question Bank", "/login"],
+            ["Gradebook", "/#gradebook"],
+          ].map(([label, href]) => (
+            <Link
+              key={label}
+              href={href}
+              className="relative py-1 text-cvsu-vibrant transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-cvsu-vibrant after:transition-all after:duration-200 hover:text-white hover:after:w-full"
+            >
+              {label}
+            </Link>
+          ))}
+          <div className="relative">
+            <button
+              type="button"
+              aria-expanded={isMoreMenuOpen}
+              aria-haspopup="true"
+              onClick={() => setIsMoreMenuOpen((open) => !open)}
+              className="flex items-center gap-1.5 py-1 text-cvsu-vibrant transition-colors hover:text-white"
+            >
+              More
+              <span className={`transition-transform ${isMoreMenuOpen ? "rotate-180" : ""}`}>⌄</span>
+            </button>
+            {isMoreMenuOpen && (
+              <div className="absolute right-0 top-full mt-3 w-48 rounded-2xl border border-white/15 bg-[#06281E]/95 p-2 text-cvsu-vibrant shadow-2xl backdrop-blur-xl">
+                <Link
+                  href="/developers"
+                  onClick={() => setIsMoreMenuOpen(false)}
+                  className="block rounded-xl px-3 py-2.5 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  Developers
+                </Link>
+                <Link
+                  href="/#footer"
+                  onClick={() => setIsMoreMenuOpen(false)}
+                  className="block rounded-xl px-3 py-2.5 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  Contact & support
+                </Link>
+              </div>
+            )}
+          </div>
+        </nav>
+
+        <div className="flex items-center gap-3">
+          <div className="relative md:hidden">
+            <button
+              type="button"
+              aria-expanded={isMoreMenuOpen}
+              aria-haspopup="true"
+              onClick={() => setIsMoreMenuOpen((open) => !open)}
+              className="px-2 py-2 text-xs font-semibold text-white/80 transition-colors hover:text-white"
+            >
+              More <span className={`inline-block transition-transform ${isMoreMenuOpen ? "rotate-180" : ""}`}>⌄</span>
+            </button>
+            {isMoreMenuOpen && (
+              <div className="absolute right-0 top-full mt-3 w-44 rounded-2xl border border-white/15 bg-[#06281E]/95 p-2 shadow-2xl backdrop-blur-xl">
+                <Link href="/developers" onClick={() => setIsMoreMenuOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white">
+                  Developers
+                </Link>
+                <Link href="/#footer" onClick={() => setIsMoreMenuOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white">
+                  Contact & support
+                </Link>
+              </div>
+            )}
+          </div>
+          <Link href="/login" className="hidden rounded-full px-3 py-2 text-xs font-semibold text-cvsu-vibrant transition-colors hover:bg-cvsu-light hover:text-cvsu-dark sm:inline-block">
+            Faculty Login
           </Link>
-          <Link
-            href="/"
-            className="rounded-full border border-[#d5e2f5] px-4 py-2 text-xs font-semibold text-[#52627a] transition-colors hover:border-cvsu-green hover:text-cvsu-green"
-          >
-            Back to home
+          <Link href="/login" className="rounded-full border border-cvsu-vibrant px-6 py-2.5 text-xs font-semibold text-cvsu-vibrant transition-colors hover:bg-cvsu-vibrant hover:text-cvsu-dark">
+            Sign In
           </Link>
         </div>
       </header>
 
       <main className="min-h-screen bg-[#fbfcff] pt-20 text-[#14213d]">
-        <section className="relative overflow-hidden px-6 py-24 sm:px-8 sm:py-16">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[380px] bg-[radial-gradient(ellipse_at_top,#e5ebc8_0%,#f5f7ea_48%,rgba(251,252,255,0)_78%)]" />
+        <section className="relative overflow-hidden bg-[linear-gradient(180deg,#eef6df_0%,#f7faef_38%,#fbfcff_70%)] px-6 py-24 sm:px-8 sm:py-16">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_at_50%_4%,rgba(137,150,74,0.28)_0%,rgba(163,230,194,0.18)_30%,rgba(247,250,239,0)_72%)]" />
+        <div className="pointer-events-none absolute -left-24 top-8 h-72 w-72 rounded-full bg-cvsu-vibrant/10 blur-3xl" />
+        <div className="pointer-events-none absolute -right-24 top-20 h-80 w-80 rounded-full bg-cvsu-green/15 blur-3xl" />
         <div className="relative mx-auto max-w-6xl">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
