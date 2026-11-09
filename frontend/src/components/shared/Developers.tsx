@@ -67,8 +67,8 @@ const developers = [
 
 export default function Developers() {
   return (
-    <main className="min-h-screen bg-[#fbfcff] text-[#14213d]">
-      <header className="border-b border-[#dce7f7] bg-white/90 text-[#14213d]">
+    <>
+      <header className="fixed inset-x-0 top-0 z-[100] w-full border-b border-[#dce7f7] bg-white/95 text-[#14213d] shadow-sm backdrop-blur-md">
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6 sm:px-8">
           <Link href="/" className="flex items-center gap-3 group">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cvsu-light text-cvsu-green shadow-sm transition-transform group-hover:scale-105">
@@ -92,7 +92,8 @@ export default function Developers() {
         </div>
       </header>
 
-      <section className="relative overflow-hidden px-6 py-24 sm:px-8 sm:py-16">
+      <main className="min-h-screen bg-[#fbfcff] pt-20 text-[#14213d]">
+        <section className="relative overflow-hidden px-6 py-24 sm:px-8 sm:py-16">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[380px] bg-[radial-gradient(ellipse_at_top,#e5ebc8_0%,#f5f7ea_48%,rgba(251,252,255,0)_78%)]" />
         <div className="relative mx-auto max-w-6xl">
           <motion.div
@@ -143,7 +144,8 @@ export default function Developers() {
             ))}
           </div>
         </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </>
   );
 }
