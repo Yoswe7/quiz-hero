@@ -12,6 +12,7 @@ from app.crud.crud_submission import create_submission, get_submissions_by_role,
 from app.crud.crud_quiz import get_quiz_by_id, quiz_is_assigned_to_student
 from app.services.ai_grader import grade_open_answer
 from app.services.srs_services import create_or_get_item
+from app.core.rate_limit import gemini_concurrency_limit, rate_limit
 
 router = APIRouter()
 
@@ -19,7 +20,9 @@ router = APIRouter()
 async def submit_quiz(
     submission_req: QuizSubmissionRequest,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
+    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
 ):
     """
     Server-side exclusive grading endpoint.

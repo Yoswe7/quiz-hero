@@ -28,6 +28,7 @@ import AssessmentEditorModal from "@/features/assessment-engine/components/Asses
 interface Props {
   currentUser?: CvSUUser;
   onViewGrades: () => void;
+  view?: "generate" | "published";
 }
 
 interface FormatOption {
@@ -70,7 +71,7 @@ const ASSESSMENT_FORMATS: FormatOption[] = [
   },
 ];
 
-export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
+export default function TeacherDashboard({ currentUser, onViewGrades, view = "generate" }: Props) {
   const router = useRouter();
   const [sourceType, setSourceType] = useState<SourceMaterialType>("topic");
   const [topic, setTopic] = useState("");
@@ -102,6 +103,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
   const [previewQuestions, setPreviewQuestions] = useState<Question[] | null>(null);
   const [previewTopic, setPreviewTopic] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [assessmentSearch, setAssessmentSearch] = useState("");
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -270,6 +272,102 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
     }
   };
 
+  if (view === "published") {
+    const normalizedSearch = assessmentSearch.trim().toLowerCase();
+    const filteredQuizzes = quizzes.filter((quiz) =>
+      [quiz.topic, quiz.quiz_type, quiz.created_by_email]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(normalizedSearch))
+    );
+
+    return (
+      <div className="view-transition space-y-8">
+        <div className="border-b border-stone-200 pb-6">
+          <p className="text-sm font-semibold text-cvsu-green">
+            Hi there, {currentUser?.full_name || currentUser?.name || "Faculty"}!
+          </p>
+          <h2 className="mt-2 font-syne text-2xl tracking-tight text-[#1C1C1C]">
+            Published Assessments
+          </h2>
+          <p className="mt-1 text-xs text-stone-500">
+            Manage the assessments currently available to your students.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-syne text-sm uppercase tracking-wider text-[#1C1C1C]">
+            Class Assessments ({filteredQuizzes.length}{assessmentSearch.trim() ? ` of ${quizzes.length}` : ""})
+          </h3>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="relative block">
+              <span className="sr-only">Search assessments</span>
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-stone-400">⌕</span>
+              <input
+                type="search"
+                value={assessmentSearch}
+                onChange={(event) => setAssessmentSearch(event.target.value)}
+                placeholder="Search assessments..."
+                className="w-full rounded-full border border-stone-300 bg-white py-2 pl-8 pr-4 text-xs text-[#1C1C1C] outline-none transition focus:border-cvsu-green focus:ring-4 focus:ring-cvsu-green/10 sm:w-64"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => loadQuizzes()}
+              disabled={loadingQuizzes}
+              className="flex items-center justify-center gap-1.5 rounded-full border border-stone-300 bg-[#F7F7F2] px-3 py-1.5 text-xs font-bold text-stone-700 transition-colors hover:bg-stone-200"
+            >
+              <IconRefresh size={13} className={loadingQuizzes ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+        </div>
+        {quizzes.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-stone-300 bg-[#F7F7F2]/60 p-10 text-center text-xs text-stone-500">
+            No assessments published yet. Use Generate to create your first assessment.
+          </div>
+        ) : filteredQuizzes.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-stone-300 bg-[#F7F7F2]/60 p-10 text-center text-xs text-stone-500">
+            No assessments match “{assessmentSearch}”.
+          </div>
+        ) : (
+          <div className="divide-y divide-stone-200 overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-xs">
+            {filteredQuizzes.map((quiz) => (
+              <div key={quiz.id} className="flex flex-col justify-between gap-4 p-5 transition-colors hover:bg-[#F7F7F2]/60 sm:flex-row sm:items-center">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-bold text-[#1C1C1C]">{quiz.topic}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2.5 py-0.5 text-[11px] font-bold text-cvsu-green">
+                      {quiz.quiz_type}
+                    </span>
+                    <span className="font-mono text-xs text-stone-500">{quiz.question_count} Questions</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                  <button type="button" onClick={() => setEditingQuiz({ id: quiz.id, topic: quiz.topic })} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50">
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => router.push(`/quiz/${quiz.id}?preview=teacher`)} className="rounded-full border border-cvsu-green bg-cvsu-green px-4 py-2 text-xs font-bold text-white hover:bg-cvsu-dark">
+                    Preview
+                  </button>
+                  <button type="button" onClick={() => handleDeleteQuiz(quiz.id, quiz.topic)} disabled={deletingId === quiz.id} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
+                    {deletingId === quiz.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {editingQuiz && (
+          <AssessmentEditorModal
+            quizId={editingQuiz?.id ?? ""}
+            initialTopic={editingQuiz?.topic ?? ""}
+            onClose={() => setEditingQuiz(null)}
+            onSaved={() => loadQuizzes()}
+          />
+        )}
+      </div>
+    );
+  }
+
   // Preview Mode when assessment generated
   if (previewQuestions && successMessage) {
     return (
@@ -304,6 +402,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
       {/* Studio Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-stone-200">
         <div>
+          <p className="text-sm font-semibold text-cvsu-green">
+            Hi there, {currentUser?.full_name || currentUser?.name || "Faculty"}!
+          </p>
           <h2 className="font-syne text-2xl tracking-tight text-[#1C1C1C]">Faculty Assessment Studio</h2>
           <p className="text-xs text-stone-500 mt-1">
             Generate curriculum assessments from topic prompts, lecture photos, PDF slides, or raw notes.
@@ -768,8 +869,10 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
         )}
       </div>
 
+      {false && (
+        <>
       {/* Published Assessments List */}
-      <div className="pt-8 border-t border-stone-200">
+      <div id="published" className="scroll-mt-24 pt-8 border-t border-stone-200">
         <div className="flex justify-between items-center mb-5">
           <div>
             <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
@@ -851,13 +954,15 @@ export default function TeacherDashboard({ currentUser, onViewGrades }: Props) {
 
       {editingQuiz && (
         <AssessmentEditorModal
-          quizId={editingQuiz.id}
-          initialTopic={editingQuiz.topic}
+          quizId={editingQuiz?.id ?? ""}
+          initialTopic={editingQuiz?.topic ?? ""}
           onClose={() => setEditingQuiz(null)}
           onSaved={() => {
             loadQuizzes();
           }}
         />
+      )}
+        </>
       )}
     </div>
   );

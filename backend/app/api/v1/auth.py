@@ -15,6 +15,7 @@ from app.crud.crud_user import (
 from app.models.user import UserRole
 from app.core.security import verify_google_oauth_token, create_access_token
 from app.core.config import settings
+from app.core.rate_limit import rate_limit
 
 router = APIRouter()
 CVSU_DOMAIN = "@cvsu.edu.ph"
@@ -22,7 +23,8 @@ CVSU_HD = "cvsu.edu.ph"
 
 @router.post("/auth/dev/student", response_model=UserResponse)
 async def authenticate_local_test_student(
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
+    _rate_limit: None = Depends(rate_limit(5, 60)),
 ):
     if settings.ENVIRONMENT.lower() == "production" or not settings.ENABLE_LOCAL_TEST_AUTH:
         raise HTTPException(
@@ -71,7 +73,8 @@ async def authenticate_local_test_student(
 @router.post("/api/auth/google", response_model=UserResponse)
 async def authenticate_google(
     request: GoogleAuthRequest, 
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
+    _rate_limit: None = Depends(rate_limit(10, 60)),
 ):
     if not request.credential or not request.credential.strip():
         raise HTTPException(

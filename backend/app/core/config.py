@@ -1,4 +1,5 @@
 import secrets
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import google.generativeai as genai
 
@@ -20,8 +21,21 @@ class Settings(BaseSettings):
     ADMIN_EMAILS: str = "joshuagabriel.tejada@cvsu.edu.ph"
     TEACHER_EMAILS: str = "joshuagabriel.tejada@cvsu.edu.ph"
     FACULTY_ACCESS_CODE: str = "CVSU_FACULTY_2026"
+    REDIS_URL: str = ""
+    RATE_LIMIT_ENABLED: bool = True
+    GEMINI_MAX_CONCURRENT_PER_USER: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_rate_limit_storage(self) -> "Settings":
+        if (
+            self.RATE_LIMIT_ENABLED
+            and self.ENVIRONMENT.lower() == "production"
+            and not self.REDIS_URL
+        ):
+            raise ValueError("REDIS_URL is required when rate limiting is enabled in production.")
+        return self
 
 settings = Settings()
 
