@@ -33,6 +33,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 security = HTTPBearer(auto_error=True)
+optional_security = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -57,6 +58,35 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
         
+    return user
+
+async def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+    db: AsyncSession = Depends(get_db_session)
+) -> User | None:
+    if credentials is None:
+        return None
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = decode_access_token(credentials.credentials)
+        email = payload.get("email") or payload.get("sub")
+        if not email:
+            raise credentials_exception
+    except HTTPException:
+        raise
+    except Exception:
+        raise credentials_exception
+
+    user = await get_user_by_email(db, email)
+    if user is None:
+        raise credentials_exception
+
     return user
 
 async def require_teacher(
