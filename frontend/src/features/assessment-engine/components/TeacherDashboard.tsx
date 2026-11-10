@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, fetchQuizzes, fetchClassrooms, deleteQuiz, assignStudentToQuiz } from "@/lib/api";
+import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz } from "@/lib/api";
 import {
   IconList,
   IconToggle,
@@ -118,6 +118,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [successMessage, setSuccessMessage] = useState("");
   const [previewQuestions, setPreviewQuestions] = useState<Question[] | null>(null);
   const [previewTopic, setPreviewTopic] = useState("");
+  const [previewQuizId, setPreviewQuizId] = useState<string | null>(null);
+  const [previewReviewStatus, setPreviewReviewStatus] = useState<"draft" | "published">("draft");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [assessmentSearch, setAssessmentSearch] = useState("");
 
@@ -305,9 +307,11 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       draftCompletedRef.current = true;
       clearDraft(draftKey);
       setPreviewQuestions(result.quiz.questions);
+      setPreviewQuizId(result.quiz.id);
+      setPreviewReviewStatus(result.quiz.review_status);
       setShowDraftNotice(false);
       setPreviewTopic(effectiveTopic);
-      setSuccessMessage(`Assessment "${effectiveTopic}" published to the class repository.`);
+      setSuccessMessage(`Assessment "${effectiveTopic}" is ready for faculty review.`);
       
       // Reset inputs
       setTopic("");
@@ -430,6 +434,13 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                     <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2.5 py-0.5 text-[11px] font-bold text-cvsu-green">
                       {quiz.quiz_type}
                     </span>
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
+                      quiz.review_status === "published"
+                        ? "border-cvsu-green/30 bg-cvsu-light text-cvsu-green"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}>
+                      {quiz.review_status === "published" ? "Verified & Published" : "Pending Review"}
+                    </span>
                     <span className="font-mono text-xs text-stone-500">{quiz.question_count} Questions</span>
                     <span className="font-mono text-xs text-stone-500">
                       {quiz.assigned_student_emails?.length ?? 0} assigned
@@ -444,7 +455,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                     Edit
                   </button>
                   <button type="button" onClick={() => router.push(`/quiz/${quiz.id}?preview=teacher`)} className="rounded-full border border-cvsu-green bg-cvsu-green px-4 py-2 text-xs font-bold text-white hover:bg-cvsu-dark">
-                    Preview
+                    {quiz.review_status === "published" ? "Preview" : "Review"}
                   </button>
                   <button type="button" onClick={() => handleDeleteQuiz(quiz.id, quiz.topic)} disabled={deletingId === quiz.id} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
                     {deletingId === quiz.id ? "Deleting..." : "Delete"}
@@ -459,7 +470,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             quizId={editingQuiz?.id ?? ""}
             initialTopic={editingQuiz?.topic ?? ""}
             onClose={() => setEditingQuiz(null)}
-            onSaved={() => loadQuizzes()}
+            onSaved={async () => {
+              await loadQuizzes();
+            }}
           />
         )}
         {assigningQuiz && (
@@ -499,29 +512,87 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
   // Preview Mode when assessment generated
   if (previewQuestions && successMessage) {
+    const handlePublishReviewedAssessment = async () => {
+      if (!previewQuizId) return;
+      setIsLoading(true);
+      setError("");
+      try {
+        await publishAssessment(previewQuizId);
+        setPreviewReviewStatus("published");
+        setSuccessMessage(`Assessment "${previewTopic}" was approved and published.`);
+        await loadQuizzes();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to publish assessment.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     return (
       <div className="view-transition space-y-6">
         <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex items-start gap-3.5 text-white shadow-md">
           <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
-            <p className="text-xs text-white/70 mt-0.5">Students can now access and submit responses for this assessment from the Student Portal.</p>
+            <p className="text-xs text-white/70 mt-0.5">
+              {previewReviewStatus === "draft"
+                ? "Review the generated content and answer key before making it available to students."
+                : "This assessment has been verified and published to the assigned students."}
+            </p>
           </div>
         </div>
 
         <TeacherQuizPreview topic={previewTopic} questions={previewQuestions} quizType={quizType} />
+
+        {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700" role="alert">{error}</p>}
+
+        {previewQuizId && previewReviewStatus === "draft" && (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setEditingQuiz({ id: previewQuizId, topic: previewTopic })}
+              className="flex-1 rounded-full border border-stone-300 bg-white px-6 py-3.5 text-sm font-bold text-stone-700 transition-colors hover:border-cvsu-green hover:text-cvsu-green"
+            >
+              Edit questions and answer keys
+            </button>
+            <button
+              type="button"
+              onClick={handlePublishReviewedAssessment}
+              disabled={isLoading}
+              className="flex-1 rounded-full border border-cvsu-vibrant/30 bg-cvsu-green px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-cvsu-dark disabled:opacity-50"
+            >
+              {isLoading ? "Publishing..." : "Approve & Publish"}
+            </button>
+          </div>
+        )}
 
         <button
           type="button"
           onClick={() => {
             setPreviewQuestions(null);
             setSuccessMessage("");
+            setPreviewQuizId(null);
+            setPreviewReviewStatus("draft");
           }}
           className="w-full bg-cvsu-green hover:bg-cvsu-dark text-white font-bold py-3.5 px-6 rounded-full text-sm transition-all btn-tactile hover:-translate-y-0.5 flex items-center justify-center gap-2 shadow-md cursor-pointer border border-cvsu-vibrant/30"
         >
           <IconPlus size={16} className="text-cvsu-vibrant" />
           <span>Create Another Assessment</span>
         </button>
+
+        {editingQuiz && previewQuizId && (
+          <AssessmentEditorModal
+            quizId={previewQuizId}
+            initialTopic={previewTopic}
+            onClose={() => setEditingQuiz(null)}
+            onSaved={async () => {
+              const updated = await fetchQuizAnswers(previewQuizId);
+              setPreviewTopic(updated.topic);
+              setPreviewQuestions(updated.questions);
+              await loadQuizzes();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1007,13 +1078,13 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {isLoading && (
           <p className="text-center text-xs text-stone-500 animate-pulse font-medium">
-            ⏳ Generating questions with Gemini 3.6 Flash usually takes 10–25 seconds. Please keep this tab open.
+            Generating questions with Gemini 3.6 Flash usually takes 10–25 seconds. Please keep this tab open.
           </p>
         )}
 
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs font-bold flex items-center gap-2 view-transition">
-            <span className="shrink-0 text-base leading-none">⚠️</span>
+            <span className="shrink-0 text-base leading-none"></span>
             <p>{error}</p>
           </div>
         )}

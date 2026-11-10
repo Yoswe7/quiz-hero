@@ -80,6 +80,7 @@ export interface PublishedQuiz {
   available_from?: string;
   due_at?: string;
   assigned_student_emails?: string[];
+  review_status: "draft" | "published";
 }
 
 export interface FacultyAssignedAssessment extends PublishedQuiz {
@@ -93,6 +94,16 @@ export interface Classroom {
   class_section?: string;
   invite_code: string;
   created_by_email: string;
+}
+
+export interface ClassroomMember {
+  student_email: string;
+  joined_at: string;
+  assigned_assessments: {
+    id: string;
+    topic: string;
+    completed: boolean;
+  }[];
 }
 
 export interface QuizDetail {

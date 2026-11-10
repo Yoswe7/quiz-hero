@@ -10,6 +10,7 @@ import {
   QuizPublishPayload,
   FacultyAssignedAssessment,
   Classroom,
+  ClassroomMember,
 } from "@/types/quiz";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -101,11 +102,17 @@ export async function fetchCurrentUser(): Promise<CvSUUser> {
 
 export async function publishQuiz(
   payload: QuizPublishPayload
-): Promise<{ quiz: { id: string; topic: string; quiz_type: string; questions: Question[] } }> {
+): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; questions: Question[] } }> {
   return fetchWithAuth(`${API_URL}/publish-quiz`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function publishAssessment(
+  quizId: string
+): Promise<{ message: string; quiz_id: string }> {
+  return fetchWithAuth(`${API_URL}/quizzes/${quizId}/publish`, { method: "POST" });
 }
 
 export async function fetchQuizzes(): Promise<PublishedQuiz[]> {
@@ -133,6 +140,14 @@ export async function joinClassroom(inviteCode: string): Promise<Classroom> {
     method: "POST",
     body: JSON.stringify({ invite_code: inviteCode }),
   });
+}
+
+export async function fetchClassroomMembers(classroomId: string): Promise<{
+  classroom: Classroom;
+  members: ClassroomMember[];
+}> {
+  const data = await fetchWithAuth(`${API_URL}/classrooms/${classroomId}/members`);
+  return data;
 }
 
 export async function fetchFacultyAssignedAssessments(): Promise<FacultyAssignedAssessment[]> {

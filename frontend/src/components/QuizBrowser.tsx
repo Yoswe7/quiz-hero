@@ -161,6 +161,9 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                     {FORMAT_ICONS[quiz.quiz_type]}
                     <span>{quiz.quiz_type}</span>
                   </span>
+                  <span className="inline-flex items-center rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
+                    Verified &amp; Published
+                  </span>
                   
                   <span className="text-stone-500 font-medium font-mono text-xs">
                     {quiz.question_count} questions

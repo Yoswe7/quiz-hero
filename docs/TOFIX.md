@@ -48,11 +48,16 @@ ERROR HANDLING
 [x] Add a "assign existing assessment" to a specific student feature.
 [x] Add an "Assigned" section in Faculty Studio navigation showing students with pending assigned assessments.
 [x] Add class-code assignment and instructor-controlled assessment visibility windows (availability start and deadline).
+[ ] Add an unpublish published assessment feature and an option to republish it.
+[ ] Fix the "Preview" error because it redirects to the generate section instead of previewing the assessment.
+[ ] Add/fix the "1 assigned" feature in order to view the assigned assessment and redirect to the "assigned" section
+[ ] Fix the "Classes" section because it doesn't show the list of joined students.
+
 [ ] Add a resizable feature for the generated quiz material before printing.
-[ ] Add question-level editing for generated questions, options, and answer keys before approval.
-[ ] Add a draft/pending-review state so generation does not publish directly to the class.
-[ ] Add a human-in-the-loop review screen with explicit approve/publish action.
-[ ] Add verified/published badges so students can distinguish teacher-approved material.
+[x] Add question-level editing for generated questions, options, and answer keys before approval.
+[x] Add a draft/pending-review state so generation does not publish directly to the class.
+[x] Add a human-in-the-loop review screen with explicit approve/publish action.
+[x] Add verified/published badges so students can distinguish teacher-approved material.
 [ ] Add a way to reject or regenerate individual inaccurate questions instead of regenerating the entire quiz.
 
 
@@ -65,9 +70,10 @@ ERROR HANDLING
 
 ------
 
+
 NAV MENU 
-[ ] Add a "Enrolled Students" section to view the student who already joined the class/section via the invite link and see their assigned assessments.
-[ ] Add a "Class" section to view the instructor's current handled class
+[x] Add an "Enrolled Students" section to view students who joined via the class invite link and see their assigned assessments.
+[x] Add a "Classes" section to view the instructor's current handled classes.
 
 
 

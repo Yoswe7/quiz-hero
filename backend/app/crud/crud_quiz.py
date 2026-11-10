@@ -40,6 +40,8 @@ async def list_faculty_pending_assignments(
 
     assignments = []
     for quiz in quizzes:
+        if quiz.review_status != "published":
+            continue
         if quiz.created_by_email and quiz.created_by_email.lower() != teacher_email.lower():
             continue
         pending_students = [

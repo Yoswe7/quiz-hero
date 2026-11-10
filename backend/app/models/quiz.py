@@ -45,6 +45,7 @@ class Quiz(SQLModel, table=True):
         sa_column=Column(JSON, nullable=False, default=list),
     )
     is_assigned: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
+    review_status: str = Field(default="draft", index=True)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now())
     )

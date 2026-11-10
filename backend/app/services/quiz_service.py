@@ -115,6 +115,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         due_at=request.due_at,
         assigned_student_emails=request.assigned_student_emails,
         is_assigned=True,
+        review_status="draft",
         questions=question_objects 
     )
     db.add(new_quiz)

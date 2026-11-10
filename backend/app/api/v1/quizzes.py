@@ -17,7 +17,7 @@ from app.schemas.quiz import (
     JoinClassroomRequest,
     ClassroomResponse,
 )
-from app.models import User, Classroom, ClassroomMembership
+from app.models import User, Classroom, ClassroomMembership, Quiz, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
 from app.services.quiz_service import validate_source_payload, publish_quiz_workflow
 from app.services.ai_generator import generate_quiz
@@ -83,13 +83,28 @@ async def publish_quiz_endpoint(
     validate_source_payload(request)
     try:
         new_quiz = await publish_quiz_workflow(request, current_user.email, db)
+        persisted_quiz = await get_quiz_by_id(db, new_quiz.id)
+        if not persisted_quiz:
+            raise HTTPException(status_code=500, detail="Assessment was created but could not be loaded for review.")
         return {
-            "message": "Quiz published successfully", 
+            "message": "Assessment draft created for review.",
             "quiz": {
-                "id": new_quiz.id,
-                "topic": new_quiz.topic,
-                "quiz_type": new_quiz.quiz_type,
-                "question_count": new_quiz.question_count,
+                "id": persisted_quiz.id,
+                "topic": persisted_quiz.topic,
+                "quiz_type": persisted_quiz.quiz_type,
+                "question_count": persisted_quiz.question_count,
+                "review_status": persisted_quiz.review_status,
+                "questions": [
+                    {
+                        "id": question.id,
+                        "question": question.question_text,
+                        "options": [option.option_text for option in question.options],
+                        "answer": question.answer,
+                        "quiz_type": question.quiz_type,
+                        "section_name": question.section_name,
+                    }
+                    for question in persisted_quiz.questions
+                ],
             }
         }
     except HTTPException:
@@ -110,7 +125,17 @@ async def list_quizzes_endpoint(
     quizzes = await list_quizzes(db)
     if current_user.role.upper() == "STUDENT":
         class_ids = await get_student_class_ids(db, current_user.email)
-        quizzes = [q for q in quizzes if quiz_is_visible_to_student(q, current_user.email, class_ids)]
+        quizzes = [
+            q for q in quizzes
+            if q.review_status == "published"
+            and quiz_is_visible_to_student(q, current_user.email, class_ids)
+        ]
+    else:
+        quizzes = [
+            q for q in quizzes
+            if not q.created_by_email
+            or q.created_by_email.lower() == current_user.email.lower()
+        ]
     return {
         "quizzes": [
             {
@@ -126,6 +151,7 @@ async def list_quizzes_endpoint(
                 "available_from": q.available_from,
                 "due_at": q.due_at,
                 "assigned_student_emails": q.assigned_student_emails or [],
+                "review_status": q.review_status,
             }
             for q in quizzes
         ]
@@ -172,6 +198,64 @@ async def list_classrooms_endpoint(
         .where(ClassroomMembership.student_email == current_user.email)
     )
     return result.scalars().all()
+
+
+@router.get("/classrooms/{classroom_id}/members")
+async def list_classroom_members_endpoint(
+    classroom_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_teacher),
+):
+    classroom_result = await db.execute(
+        select(Classroom).where(
+            Classroom.id == classroom_id,
+            Classroom.created_by_email == current_user.email,
+        )
+    )
+    classroom = classroom_result.scalar_one_or_none()
+    if not classroom:
+        raise HTTPException(status_code=404, detail="Class not found.")
+
+    member_result = await db.execute(
+        select(ClassroomMembership).where(
+            ClassroomMembership.classroom_id == classroom_id
+        ).order_by(ClassroomMembership.joined_at.desc())
+    )
+    memberships = member_result.scalars().all()
+    quiz_result = await db.execute(
+        select(Quiz).where(Quiz.classroom_id == classroom_id)
+    )
+    class_quizzes = quiz_result.scalars().all()
+    submission_result = await db.execute(
+        select(Submission.quiz_id, Submission.student_email).where(
+            Submission.quiz_id.in_([quiz.id for quiz in class_quizzes])
+        )
+    ) if class_quizzes else None
+    completed = {
+        (quiz_id, email.strip().lower())
+        for quiz_id, email in (submission_result.all() if submission_result else [])
+    }
+
+    return {
+        "classroom": classroom,
+        "members": [
+            {
+                "student_email": membership.student_email,
+                "joined_at": membership.joined_at,
+                "assigned_assessments": [
+                    {
+                        "id": quiz.id,
+                        "topic": quiz.topic,
+                        "completed": (quiz.id, membership.student_email.lower()) in completed,
+                    }
+                    for quiz in class_quizzes
+                    if quiz_is_visible_to_student(quiz, membership.student_email, {classroom_id})
+                    or quiz.classroom_id == classroom_id
+                ],
+            }
+            for membership in memberships
+        ],
+    }
 
 
 @router.post("/classrooms/join", response_model=ClassroomResponse)
@@ -228,6 +312,8 @@ async def get_quiz_endpoint(
     if not quiz:
         raise HTTPException(status_code=404, detail="Assessment not found")
     if current_user.role.upper() == "STUDENT":
+        if quiz.review_status != "published":
+            raise HTTPException(status_code=403, detail="This assessment is still under faculty review.")
         class_ids = await get_student_class_ids(db, current_user.email)
         if not quiz_is_visible_to_student(quiz, current_user.email, class_ids):
             raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
@@ -272,6 +358,8 @@ async def get_quiz_answers_endpoint(
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
         raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only review your own assessments.")
     answers_data = []
     for q in quiz.questions:
         options = [opt.option_text for opt in q.options] if getattr(q, 'options', None) else []
@@ -306,6 +394,11 @@ async def update_quiz_endpoint(
         raise HTTPException(status_code=400, detail="Assessment topic title cannot be empty")
     if not request.questions or len(request.questions) == 0:
         raise HTTPException(status_code=400, detail="Assessment must contain at least 1 question")
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only edit your own assessments.")
 
     updated = await update_quiz(
         db=db,
@@ -317,6 +410,24 @@ async def update_quiz_endpoint(
         raise HTTPException(status_code=404, detail="Assessment not found")
 
     return {"message": "Assessment updated successfully", "quiz_id": quiz_id}
+
+
+@router.post("/quizzes/{quiz_id}/publish")
+async def publish_reviewed_quiz_endpoint(
+    quiz_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_teacher),
+):
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only publish your own assessments.")
+    if quiz.review_status == "published":
+        return {"message": "Assessment is already published.", "quiz_id": quiz_id}
+    quiz.review_status = "published"
+    await db.commit()
+    return {"message": "Assessment approved and published.", "quiz_id": quiz_id}
 
 
 @router.post("/quizzes/{quiz_id}/assign")
