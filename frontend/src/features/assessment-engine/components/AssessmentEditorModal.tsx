@@ -10,7 +10,7 @@ interface Props {
   quizId: string;
   initialTopic: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }
 
 export default function AssessmentEditorModal({
@@ -213,8 +213,8 @@ export default function AssessmentEditorModal({
       await queryClient.invalidateQueries({ queryKey: ["quizzes"] });
 
       setSuccess("Assessment changes saved successfully!");
-      setTimeout(() => {
-        onSaved();
+      setTimeout(async () => {
+        await onSaved();
         onClose();
       }, 700);
     } catch (err) {
@@ -538,4 +538,3 @@ export default function AssessmentEditorModal({
     </div>
   );
 }
-

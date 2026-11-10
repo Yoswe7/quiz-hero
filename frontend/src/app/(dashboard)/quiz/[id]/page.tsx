@@ -110,6 +110,7 @@ export default function QuizPage() {
       ) : view === "quiz" ? (
         <QuizPlayer
           quizId={quizDetail.id}
+          studentEmail={user?.email || ""}
           questions={quizDetail.questions}
           quizType={quizDetail.quiz_type}
           onComplete={handleQuizComplete}

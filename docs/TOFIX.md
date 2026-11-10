@@ -6,6 +6,7 @@
 # Features
 
 OVERALL
+[x] Add autosave session restore/draft recovery across faculty and student workflows.
 [x] Add a detailed and complete learning progress feature in Gradebook.tsx
   [x] Topic-level progress
   [x] Retention or mastery
@@ -42,13 +43,21 @@ ACCESSIBILITY
 ERROR HANDLING
 [ ] Show a clear error when assessment loading fails instead of an empty-state message.
 
-FACULTY SIDE
+# FACULTY SIDE
 [x] Add a generated quiz preview with answer keys.
+[x] Add a "assign existing assessment" to a specific student feature.
+[x] Add an "Assigned" section in Faculty Studio navigation showing students with pending assigned assessments.
+[x] Add class-code assignment and instructor-controlled assessment visibility windows (availability start and deadline).
+[ ] Add an unpublish published assessment feature and an option to republish it.
+[ ] Fix the "Preview" error because it redirects to the generate section instead of previewing the assessment.
+[ ] Add/fix the "1 assigned" feature in order to view the assigned assessment and redirect to the "assigned" section
+[ ] Fix the "Classes" section because it doesn't show the list of joined students.
+
 [ ] Add a resizable feature for the generated quiz material before printing.
-[ ] Add question-level editing for generated questions, options, and answer keys before approval.
-[ ] Add a draft/pending-review state so generation does not publish directly to the class.
-[ ] Add a human-in-the-loop review screen with explicit approve/publish action.
-[ ] Add verified/published badges so students can distinguish teacher-approved material.
+[x] Add question-level editing for generated questions, options, and answer keys before approval.
+[x] Add a draft/pending-review state so generation does not publish directly to the class.
+[x] Add a human-in-the-loop review screen with explicit approve/publish action.
+[x] Add verified/published badges so students can distinguish teacher-approved material.
 [ ] Add a way to reject or regenerate individual inaccurate questions instead of regenerating the entire quiz.
 
 
@@ -58,8 +67,31 @@ FACULTY SIDE
 [ ] Add DOCX upload and parsing if the research scope continues to promise PDF and DOCX support.
 [ ] Align the displayed file-size limits with the actual backend limits and the research scope.
 
-STUDENT SIDE
 
+------
+
+
+NAV MENU 
+[x] Add an "Enrolled Students" section to view students who joined via the class invite link and see their assigned assessments.
+[x] Add a "Classes" section to view the instructor's current handled classes.
+
+
+
+# STUDENT SIDE
+
+STUDENT PROFILE
+
+[ ] Add a change profile picture feature.
+
+EMAILS
+
+[ ] Add a "allow email notifications" feature.
+
+NAV MENU
+[ ] Add a "enrolled classes" section and once expanded, it will show enrolled classes/courses.
+
+
+-----
 [ ] Implement flashcard generation and flashcard study sessions from teacher-approved course material.
 [ ] Add student study sets with create, edit, delete, and organize actions.
 [ ] Add the Student Study Commons for sharing and discovering approved study sets.

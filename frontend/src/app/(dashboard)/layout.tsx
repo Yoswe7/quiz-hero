@@ -102,10 +102,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               type="button"
               onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
               aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-              className="mb-5 flex h-10 items-center rounded-xl px-3 text-cvsu-dark transition-colors hover:bg-white/70"
+              aria-expanded={!isSidebarCollapsed}
+              title={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+              className="mb-5 flex h-10 w-10 items-center justify-center rounded-xl text-cvsu-dark transition-colors hover:bg-white/70"
             >
-              <span className="text-xl leading-none">{isSidebarCollapsed ? "→" : "←"}</span>
-              {!isSidebarCollapsed && <span className="ml-3 text-xs font-bold uppercase tracking-wider">Collapse menu</span>}
+              <span className="flex w-5 flex-col gap-1" aria-hidden="true">
+                <span className="h-0.5 w-full rounded-full bg-current" />
+                <span className="h-0.5 w-full rounded-full bg-current" />
+                <span className="h-0.5 w-full rounded-full bg-current" />
+              </span>
             </button>
 
             <nav className="space-y-2" aria-label="Faculty Studio navigation">
@@ -126,6 +131,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <span className="w-6 text-center text-base">▤</span>
                 {!isSidebarCollapsed && <span className="ml-3">Published Assessments</span>}
+              </Link>
+              <Link
+                href="/studio/assigned"
+                className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                  pathname === "/studio/assigned" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
+                }`}
+              >
+                <span className="w-6 text-center text-base">☑</span>
+                {!isSidebarCollapsed && <span className="ml-3">Assigned</span>}
+              </Link>
+              <Link
+                href="/studio/classes"
+                className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                  pathname === "/studio/classes" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
+                }`}
+              >
+                <span className="w-6 text-center text-base">▣</span>
+                {!isSidebarCollapsed && <span className="ml-3">Classes</span>}
+              </Link>
+              <Link
+                href="/studio/students"
+                className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                  pathname === "/studio/students" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
+                }`}
+              >
+                <span className="w-6 text-center text-base">♙</span>
+                {!isSidebarCollapsed && <span className="ml-3">Enrolled Students</span>}
               </Link>
               <Link
                 href="/grades"

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, fetchQuizzes, deleteQuiz } from "@/lib/api";
+import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz } from "@/lib/api";
 import {
   IconList,
   IconToggle,
@@ -24,6 +24,7 @@ import {
 import AIChatbot from "@/components/shared/AIChatbot"; // Adjusted as per instruction
 import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
 import AssessmentEditorModal from "@/features/assessment-engine/components/AssessmentEditorModal";
+import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
 
 interface Props {
   currentUser?: CvSUUser;
@@ -73,15 +74,30 @@ const ASSESSMENT_FORMATS: FormatOption[] = [
 
 export default function TeacherDashboard({ currentUser, onViewGrades, view = "generate" }: Props) {
   const router = useRouter();
-  const [sourceType, setSourceType] = useState<SourceMaterialType>("topic");
-  const [topic, setTopic] = useState("");
-  const [notesText, setNotesText] = useState("");
-  const [questionCount, setQuestionCount] = useState(5);
-  const [quizType, setQuizType] = useState<QuizType>("Multiple Choice");
-  const [courseCode, setCourseCode] = useState("");
-  const [classSection, setClassSection] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [assignedStudentEmails, setAssignedStudentEmails] = useState("");
+  const draftKey = `quiz-hero:draft:faculty:${currentUser?.email?.toLowerCase() || "anonymous"}`;
+  const [savedDraft] = useState<{
+    sourceType?: SourceMaterialType;
+    topic?: string;
+    notesText?: string;
+    questionCount?: number;
+    quizType?: QuizType;
+    courseCode?: string;
+    classSection?: string;
+    availableFrom?: string;
+    dueAt?: string;
+    assignedStudentEmails?: string;
+  } | null>(() => readDraft(draftKey));
+  const [sourceType, setSourceType] = useState<SourceMaterialType>(savedDraft?.sourceType || "topic");
+  const [topic, setTopic] = useState(savedDraft?.topic || "");
+  const [notesText, setNotesText] = useState(savedDraft?.notesText || "");
+  const [questionCount, setQuestionCount] = useState(savedDraft?.questionCount || 5);
+  const [quizType, setQuizType] = useState<QuizType>(savedDraft?.quizType || "Multiple Choice");
+  const [courseCode, setCourseCode] = useState(savedDraft?.courseCode || "");
+  const [classSection, setClassSection] = useState(savedDraft?.classSection || "");
+  const [classroomId, setClassroomId] = useState("");
+  const [availableFrom, setAvailableFrom] = useState(savedDraft?.availableFrom || "");
+  const [dueAt, setDueAt] = useState(savedDraft?.dueAt || "");
+  const [assignedStudentEmails, setAssignedStudentEmails] = useState(savedDraft?.assignedStudentEmails || "");
   
   // Mixed / Multi-section counters
   const [mcCount, setMcCount] = useState(10);
@@ -102,6 +118,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [successMessage, setSuccessMessage] = useState("");
   const [previewQuestions, setPreviewQuestions] = useState<Question[] | null>(null);
   const [previewTopic, setPreviewTopic] = useState("");
+  const [previewQuizId, setPreviewQuizId] = useState<string | null>(null);
+  const [previewReviewStatus, setPreviewReviewStatus] = useState<"draft" | "published">("draft");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [assessmentSearch, setAssessmentSearch] = useState("");
 
@@ -128,9 +146,52 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     queryKey: ["quizzes", "teacher"],
     queryFn: () => fetchQuizzes(),
   });
+  const { data: classrooms = [], refetch: loadClassrooms } = useQuery({
+    queryKey: ["classrooms", "teacher"],
+    queryFn: fetchClassrooms,
+  });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingQuiz, setEditingQuiz] = useState<{ id: string; topic: string } | null>(null);
+  const [assigningQuiz, setAssigningQuiz] = useState<PublishedQuiz | null>(null);
+  const [studentEmail, setStudentEmail] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignmentError, setAssignmentError] = useState("");
+  const [assignmentMessage, setAssignmentMessage] = useState("");
+  const [showDraftNotice, setShowDraftNotice] = useState(Boolean(savedDraft));
+  const draftCompletedRef = useRef(false);
+
+  useEffect(() => {
+    if (view !== "generate" || draftCompletedRef.current) return;
+    const timeout = window.setTimeout(() => {
+      writeDraft(draftKey, {
+        sourceType,
+        topic,
+        notesText,
+        questionCount,
+        quizType,
+        courseCode,
+        classSection,
+        availableFrom,
+        dueAt,
+        assignedStudentEmails,
+      });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [
+    availableFrom,
+    assignedStudentEmails,
+    classSection,
+    courseCode,
+    draftKey,
+    dueAt,
+    notesText,
+    questionCount,
+    quizType,
+    sourceType,
+    topic,
+    view,
+  ]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -186,8 +247,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         .map((email) => email.trim().toLowerCase())
         .filter(Boolean)
     )];
-    if (assignedEmails.length === 0) {
-      setError("Enter at least one verified CvSU student email to assign this assessment.");
+    if (assignedEmails.length === 0 && !classroomId) {
+      setError("Choose a class or enter at least one verified CvSU student email.");
       return;
     }
     if (assignedEmails.some((email) => !email.endsWith("@cvsu.edu.ph"))) {
@@ -236,14 +297,21 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         file_name: selectedFile?.name,
         course_code: courseCode.trim() || undefined,
         class_section: classSection.trim() || undefined,
+        classroom_id: classroomId || undefined,
+        available_from: availableFrom ? new Date(availableFrom).toISOString() : undefined,
         due_at: dueAt ? new Date(dueAt).toISOString() : undefined,
         assigned_student_emails: assignedEmails,
       };
 
       const result = await publishQuiz(payload);
+      draftCompletedRef.current = true;
+      clearDraft(draftKey);
       setPreviewQuestions(result.quiz.questions);
+      setPreviewQuizId(result.quiz.id);
+      setPreviewReviewStatus(result.quiz.review_status);
+      setShowDraftNotice(false);
       setPreviewTopic(effectiveTopic);
-      setSuccessMessage(`Assessment "${effectiveTopic}" published to the class repository.`);
+      setSuccessMessage(`Assessment "${effectiveTopic}" is ready for faculty review.`);
       
       // Reset inputs
       setTopic("");
@@ -272,6 +340,29 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     }
   };
 
+  const handleAssignStudent = async () => {
+    if (!assigningQuiz) return;
+    const normalizedEmail = studentEmail.trim().toLowerCase();
+    if (!normalizedEmail.endsWith("@cvsu.edu.ph")) {
+      setAssignmentError("Enter a verified @cvsu.edu.ph student email address.");
+      return;
+    }
+
+    setAssigning(true);
+    setAssignmentError("");
+    try {
+      const result = await assignStudentToQuiz(assigningQuiz.id, normalizedEmail);
+      setAssignmentMessage(result.message);
+      setStudentEmail("");
+      setAssigningQuiz(null);
+      loadQuizzes();
+    } catch (err) {
+      setAssignmentError(err instanceof Error ? err.message : "Failed to assign assessment.");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   if (view === "published") {
     const normalizedSearch = assessmentSearch.trim().toLowerCase();
     const filteredQuizzes = quizzes.filter((quiz) =>
@@ -293,6 +384,11 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             Manage the assessments currently available to your students.
           </p>
         </div>
+        {assignmentMessage && (
+          <div className="rounded-2xl border border-cvsu-green/30 bg-cvsu-light px-4 py-3 text-xs font-semibold text-cvsu-green" role="status">
+            {assignmentMessage}
+          </div>
+        )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="font-syne text-sm uppercase tracking-wider text-[#1C1C1C]">
             Class Assessments ({filteredQuizzes.length}{assessmentSearch.trim() ? ` of ${quizzes.length}` : ""})
@@ -338,15 +434,28 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                     <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2.5 py-0.5 text-[11px] font-bold text-cvsu-green">
                       {quiz.quiz_type}
                     </span>
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
+                      quiz.review_status === "published"
+                        ? "border-cvsu-green/30 bg-cvsu-light text-cvsu-green"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}>
+                      {quiz.review_status === "published" ? "Verified & Published" : "Pending Review"}
+                    </span>
                     <span className="font-mono text-xs text-stone-500">{quiz.question_count} Questions</span>
+                    <span className="font-mono text-xs text-stone-500">
+                      {quiz.assigned_student_emails?.length ?? 0} assigned
+                    </span>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                  <button type="button" onClick={() => { setAssignmentError(""); setAssigningQuiz(quiz); }} className="rounded-full border border-cvsu-green/40 bg-cvsu-light px-4 py-2 text-xs font-bold text-cvsu-green hover:bg-cvsu-green hover:text-white">
+                    Assign student
+                  </button>
                   <button type="button" onClick={() => setEditingQuiz({ id: quiz.id, topic: quiz.topic })} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50">
                     Edit
                   </button>
                   <button type="button" onClick={() => router.push(`/quiz/${quiz.id}?preview=teacher`)} className="rounded-full border border-cvsu-green bg-cvsu-green px-4 py-2 text-xs font-bold text-white hover:bg-cvsu-dark">
-                    Preview
+                    {quiz.review_status === "published" ? "Preview" : "Review"}
                   </button>
                   <button type="button" onClick={() => handleDeleteQuiz(quiz.id, quiz.topic)} disabled={deletingId === quiz.id} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
                     {deletingId === quiz.id ? "Deleting..." : "Delete"}
@@ -361,8 +470,41 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             quizId={editingQuiz?.id ?? ""}
             initialTopic={editingQuiz?.topic ?? ""}
             onClose={() => setEditingQuiz(null)}
-            onSaved={() => loadQuizzes()}
+            onSaved={async () => {
+              await loadQuizzes();
+            }}
           />
+        )}
+        {assigningQuiz && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="assign-student-title">
+            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+              <h3 id="assign-student-title" className="font-syne text-lg text-[#1C1C1C]">Assign existing assessment</h3>
+              <p className="mt-1 text-xs text-stone-500">
+                Assign “{assigningQuiz.topic}” to a specific student without creating another assessment.
+              </p>
+              <label htmlFor="student-email" className="mt-5 block text-xs font-bold uppercase tracking-wider text-stone-700">
+                Student CvSU email
+              </label>
+              <input
+                id="student-email"
+                type="email"
+                autoFocus
+                value={studentEmail}
+                onChange={(event) => setStudentEmail(event.target.value)}
+                placeholder="student@cvsu.edu.ph"
+                className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm text-[#1C1C1C] outline-none focus:border-cvsu-green focus:ring-4 focus:ring-cvsu-green/10"
+              />
+              {assignmentError && <p className="mt-2 text-xs font-semibold text-red-700" role="alert">{assignmentError}</p>}
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => { setAssigningQuiz(null); setStudentEmail(""); setAssignmentError(""); }} className="rounded-full border border-stone-200 px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleAssignStudent} disabled={assigning} className="rounded-full bg-cvsu-green px-4 py-2 text-xs font-bold text-white hover:bg-cvsu-dark disabled:opacity-50">
+                  {assigning ? "Assigning..." : "Assign assessment"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -370,35 +512,101 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
   // Preview Mode when assessment generated
   if (previewQuestions && successMessage) {
+    const handlePublishReviewedAssessment = async () => {
+      if (!previewQuizId) return;
+      setIsLoading(true);
+      setError("");
+      try {
+        await publishAssessment(previewQuizId);
+        setPreviewReviewStatus("published");
+        setSuccessMessage(`Assessment "${previewTopic}" was approved and published.`);
+        await loadQuizzes();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to publish assessment.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     return (
       <div className="view-transition space-y-6">
         <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex items-start gap-3.5 text-white shadow-md">
           <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
-            <p className="text-xs text-white/70 mt-0.5">Students can now access and submit responses for this assessment from the Student Portal.</p>
+            <p className="text-xs text-white/70 mt-0.5">
+              {previewReviewStatus === "draft"
+                ? "Review the generated content and answer key before making it available to students."
+                : "This assessment has been verified and published to the assigned students."}
+            </p>
           </div>
         </div>
 
         <TeacherQuizPreview topic={previewTopic} questions={previewQuestions} quizType={quizType} />
+
+        {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700" role="alert">{error}</p>}
+
+        {previewQuizId && previewReviewStatus === "draft" && (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setEditingQuiz({ id: previewQuizId, topic: previewTopic })}
+              className="flex-1 rounded-full border border-stone-300 bg-white px-6 py-3.5 text-sm font-bold text-stone-700 transition-colors hover:border-cvsu-green hover:text-cvsu-green"
+            >
+              Edit questions and answer keys
+            </button>
+            <button
+              type="button"
+              onClick={handlePublishReviewedAssessment}
+              disabled={isLoading}
+              className="flex-1 rounded-full border border-cvsu-vibrant/30 bg-cvsu-green px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-cvsu-dark disabled:opacity-50"
+            >
+              {isLoading ? "Publishing..." : "Approve & Publish"}
+            </button>
+          </div>
+        )}
 
         <button
           type="button"
           onClick={() => {
             setPreviewQuestions(null);
             setSuccessMessage("");
+            setPreviewQuizId(null);
+            setPreviewReviewStatus("draft");
           }}
           className="w-full bg-cvsu-green hover:bg-cvsu-dark text-white font-bold py-3.5 px-6 rounded-full text-sm transition-all btn-tactile hover:-translate-y-0.5 flex items-center justify-center gap-2 shadow-md cursor-pointer border border-cvsu-vibrant/30"
         >
           <IconPlus size={16} className="text-cvsu-vibrant" />
           <span>Create Another Assessment</span>
         </button>
+
+        {editingQuiz && previewQuizId && (
+          <AssessmentEditorModal
+            quizId={previewQuizId}
+            initialTopic={previewTopic}
+            onClose={() => setEditingQuiz(null)}
+            onSaved={async () => {
+              const updated = await fetchQuizAnswers(previewQuizId);
+              setPreviewTopic(updated.topic);
+              setPreviewQuestions(updated.questions);
+              await loadQuizzes();
+            }}
+          />
+        )}
       </div>
     );
   }
 
   return (
     <div className="view-transition space-y-8">
+      {showDraftNotice && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-cvsu-green/30 bg-cvsu-light px-4 py-3 text-xs font-semibold text-cvsu-green" role="status">
+          <span>Your unfinished assessment draft was restored.</span>
+          <button type="button" onClick={() => { clearDraft(draftKey); setShowDraftNotice(false); }} className="font-bold underline">
+            Discard draft
+          </button>
+        </div>
+      )}
       {/* Studio Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-stone-200">
         <div>
@@ -813,14 +1021,27 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-amber-950">4. Assignment access</p>
-            <p className="mt-1 text-xs text-amber-900/80">Only the listed CvSU student accounts will see this assessment. Existing unassigned assessments are hidden from students.</p>
+            <p className="mt-1 text-xs text-amber-900/80">Choose a class for late-enrollee access, or assign individual CvSU accounts. Students can see the assessment only during the availability window.</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <input aria-label="Course code" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} placeholder="Course code (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
             <input aria-label="Class section" value={classSection} onChange={(e) => setClassSection(e.target.value)} placeholder="Section (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <select aria-label="Assign to class" value={classroomId} onChange={(e) => setClassroomId(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20">
+              <option value="">Individual students</option>
+              {classrooms.map((classroom) => (
+                <option key={classroom.id} value={classroom.id}>
+                  {classroom.name} ({classroom.invite_code})
+                </option>
+              ))}
+            </select>
+            <input aria-label="Available from" type="datetime-local" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
             <input aria-label="Due date" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
           </div>
-          <textarea aria-label="Assigned student emails" value={assignedStudentEmails} onChange={(e) => setAssignedStudentEmails(e.target.value)} placeholder="Student emails, separated by commas or spaces (e.g. student@cvsu.edu.ph)" rows={3} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+          {!classroomId && (
+            <textarea aria-label="Assigned student emails" value={assignedStudentEmails} onChange={(e) => setAssignedStudentEmails(e.target.value)} placeholder="Optional individual student emails, separated by commas or spaces" rows={3} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+          )}
         </div>
 
         {/* Generate Button with CvSU Primary Styling */}
@@ -857,13 +1078,13 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {isLoading && (
           <p className="text-center text-xs text-stone-500 animate-pulse font-medium">
-            ⏳ Generating questions with Gemini 3.6 Flash usually takes 10–25 seconds. Please keep this tab open.
+            Generating questions with Gemini 3.6 Flash usually takes 10–25 seconds. Please keep this tab open.
           </p>
         )}
 
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs font-bold flex items-center gap-2 view-transition">
-            <span className="shrink-0 text-base leading-none">⚠️</span>
+            <span className="shrink-0 text-base leading-none"></span>
             <p>{error}</p>
           </div>
         )}

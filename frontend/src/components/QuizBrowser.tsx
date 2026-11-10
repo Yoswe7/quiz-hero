@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { PublishedQuiz, QuizType } from "@/types/quiz";
-import { fetchQuizzes } from "@/lib/api";
+import { fetchQuizzes, joinClassroom } from "@/lib/api";
+import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconBarChart,
@@ -30,10 +32,22 @@ const FORMAT_ICONS: Record<QuizType, React.ReactNode> = {
 };
 
 export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
+  const { user } = useAuth();
+  const joinDraftKey = `quiz-hero:draft:join-class:${user?.email?.toLowerCase() || "anonymous"}`;
   const { data: quizzes = [], isLoading, refetch } = useQuery({
     queryKey: ["quizzes"],
-    queryFn: () => fetchQuizzes(),
+    queryFn: fetchQuizzes,
   });
+  const [inviteCode, setInviteCode] = useState(() => readDraft<string>(joinDraftKey) || "");
+  const [joinMessage, setJoinMessage] = useState("");
+  const [joining, setJoining] = useState(false);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (inviteCode) writeDraft(joinDraftKey, inviteCode);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [inviteCode, joinDraftKey]);
 
   const loadQuizzes = () => {
     refetch();
@@ -70,6 +84,36 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
           </button>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-cvsu-green/20 bg-cvsu-light/40 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-cvsu-green">Join a class</p>
+            <p className="mt-1 text-xs text-stone-600">Enter your instructor&apos;s invite code to access assigned assessments.</p>
+          </div>
+          <div className="flex gap-2">
+            <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="Invite code" maxLength={8} className="w-32 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-mono uppercase text-[#1C1C1C]" />
+            <button type="button" disabled={joining || !inviteCode.trim()} onClick={async () => {
+              setJoining(true);
+              setJoinMessage("");
+              try {
+                const classroom = await joinClassroom(inviteCode);
+                setJoinMessage(`Joined ${classroom.name}.`);
+                setInviteCode("");
+                clearDraft(joinDraftKey);
+                refetch();
+              } catch (error) {
+                setJoinMessage(error instanceof Error ? error.message : "Unable to join class.");
+              } finally {
+                setJoining(false);
+              }
+            }} className="rounded-full bg-cvsu-green px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+              {joining ? "Joining..." : "Join"}
+            </button>
+          </div>
+        </div>
+        {joinMessage && <p className="mt-2 text-xs font-semibold text-cvsu-green" role="status">{joinMessage}</p>}
+      </section>
 
       {/* List / Skeletons / Illustrated Empty State */}
       {isLoading ? (
@@ -116,6 +160,9 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cvsu-light text-cvsu-green font-bold border border-cvsu-green/30">
                     {FORMAT_ICONS[quiz.quiz_type]}
                     <span>{quiz.quiz_type}</span>
+                  </span>
+                  <span className="inline-flex items-center rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
+                    Verified &amp; Published
                   </span>
                   
                   <span className="text-stone-500 font-medium font-mono text-xs">

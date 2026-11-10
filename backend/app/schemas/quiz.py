@@ -19,6 +19,8 @@ class QuizRequest(BaseModel):
     file_name: str | None = None
     course_code: str | None = None
     class_section: str | None = None
+    classroom_id: str | None = None
+    available_from: datetime | None = None
     due_at: datetime | None = None
     assigned_student_emails: list[str] = Field(default_factory=list)
 
@@ -34,6 +36,33 @@ class QuizRequest(BaseModel):
         if invalid:
             raise ValueError("Assigned students must use verified @cvsu.edu.ph email addresses.")
         return sorted(normalized)
+
+class AssignStudentRequest(BaseModel):
+    student_email: str
+
+    @field_validator("student_email")
+    @classmethod
+    def normalize_student_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized.endswith("@cvsu.edu.ph"):
+            raise ValueError("Assigned students must use verified @cvsu.edu.ph email addresses.")
+        return normalized
+
+class ClassroomCreateRequest(BaseModel):
+    name: str
+    course_code: str | None = None
+    class_section: str | None = None
+
+class JoinClassroomRequest(BaseModel):
+    invite_code: str
+
+class ClassroomResponse(BaseModel):
+    id: str
+    name: str
+    course_code: str | None = None
+    class_section: str | None = None
+    invite_code: str
+    created_by_email: str
 
 class StudentAnswerSubmission(BaseModel):
     question: str

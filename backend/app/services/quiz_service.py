@@ -1,8 +1,9 @@
 import uuid
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 from app.schemas.quiz import QuizRequest
-from app.models import Quiz, Question, Option
+from app.models import Quiz, Question, Option, Classroom
 from app.services.ai_generator import generate_quiz
 
 ALLOWED_MIME_TYPES = {
@@ -41,11 +42,23 @@ def validate_source_payload(request: QuizRequest) -> None:
             )
 
 async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: AsyncSession) -> Quiz:
-    if not request.assigned_student_emails:
+    if not request.assigned_student_emails and not request.classroom_id:
         raise HTTPException(
             status_code=400,
-            detail="Assign this assessment to at least one verified CvSU student email.",
+            detail="Assign this assessment to a class or at least one verified CvSU student email.",
         )
+    if request.available_from and request.due_at and request.available_from >= request.due_at:
+        raise HTTPException(status_code=400, detail="The availability start must be before the deadline.")
+    if request.classroom_id:
+        classroom_result = await db.execute(
+            select(Classroom).where(
+                Classroom.id == request.classroom_id,
+                Classroom.created_by_email == user_email,
+                Classroom.is_active.is_(True),
+            )
+        )
+        if not classroom_result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Selected class was not found or is not owned by you.")
 
     topic_title = (request.topic or "").strip() or (request.file_name if request.file_name else "Course Assessment")
     count = max(1, min(50, request.question_count))
@@ -97,9 +110,12 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         created_by_email=user_email,
         course_code=request.course_code.strip() if request.course_code else None,
         class_section=request.class_section.strip() if request.class_section else None,
+        classroom_id=request.classroom_id,
+        available_from=request.available_from,
         due_at=request.due_at,
         assigned_student_emails=request.assigned_student_emails,
         is_assigned=True,
+        review_status="draft",
         questions=question_objects 
     )
     db.add(new_quiz)
