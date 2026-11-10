@@ -233,7 +233,7 @@ async def get_student_progress(
             "assessments_completed": len(submissions),
             "topics_started": len(topic_progress),
             "average_percentage": round(
-                sum(float(item["percentage"]) for item in submissions) / len(submissions), 1
+                sum(float(item.percentage) for item in submissions) / len(submissions), 1
             ) if submissions else 0.0,
             "study_streak_days": streak,
         },

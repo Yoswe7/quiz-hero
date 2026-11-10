@@ -12,7 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const isTeacher = user?.role?.toUpperCase() === "TEACHER" || user?.role?.toLowerCase() === "teacher";
-  const isStudentRoute = pathname === "/dashboard" || pathname === "/student" || pathname.startsWith("/quiz");
+  const isStudentRoute = pathname === "/dashboard" || pathname === "/student" || pathname === "/review" || pathname.startsWith("/quiz");
   const isTeacherRoute = pathname === "/studio" || pathname === "/teacher" || pathname.startsWith("/studio/");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -211,8 +211,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </Link>
 
-          <div className="text-sm font-semibold text-white/80">
-            {isTeacher ? "Faculty Studio" : "Student Studio"}
+          <div className="flex items-center gap-4 text-sm font-semibold text-white/80">
+            {!isTeacher && (
+              <Link href="/review" className="rounded-full px-3 py-1.5 transition hover:bg-white/10 hover:text-cvsu-vibrant">
+                Due Reviews
+              </Link>
+            )}
+            <span>{isTeacher ? "Faculty Studio" : "Student Studio"}</span>
           </div>
 
           {/* Right: User Profile & Actions */}

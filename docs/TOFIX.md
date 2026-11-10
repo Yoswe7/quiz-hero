@@ -107,11 +107,11 @@ PUBLISHED ASSESSMENTS
 [x] "Assigned to me" distinction
 
 SPACED REPETITION
-[ ] Connect the existing SM-2 ReviewItem model and service to registered FastAPI routes.
-[ ] Replace the frontend placeholder SRS proxy calls with the real backend API base URL and authentication.
-[ ] Create a due-review page with review cards, recall input, and quality ratings from 0 to 5.
-[ ] Automatically create review items when a student completes or saves a flashcard/quiz item.
-[ ] Show next-review dates, due counts, streaks, and topic-level progress.
+[x] Connect the existing SM-2 ReviewItem model and service to registered FastAPI routes.
+[x] Replace the frontend placeholder SRS proxy calls with the real backend API base URL and authentication.
+[x] Create a due-review page with review cards, recall input, and quality ratings from 0 to 5.
+[x] Automatically create review items when a student completes or saves a flashcard/quiz item.
+[x] Show next-review dates, due counts, streaks, and topic-level progress.
 
 AI GENERATION QUALITY
 [x] Enforce requested item counts and type-specific output validation in the generation service.
