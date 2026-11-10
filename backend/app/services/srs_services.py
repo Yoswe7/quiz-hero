@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from sqlalchemy import update
 
 from app.models.srs import ReviewItem
 

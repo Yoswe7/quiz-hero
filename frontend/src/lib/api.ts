@@ -13,10 +13,10 @@ import {
   ClassroomMember,
 } from "@/types/quiz";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 // Helper to attach JWT token
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
+export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const token = typeof window !== "undefined" ? localStorage.getItem("cvsu_token") : null;
   const headers = new Headers(options.headers || {});
   
