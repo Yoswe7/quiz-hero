@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { StudentQuestion, QuizType } from "@/types/quiz";
 import { IconArrowRight } from "@/components/icons";
+import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
 
 export interface StudentQuizAnswerInput {
   question: string;
@@ -11,22 +12,44 @@ export interface StudentQuizAnswerInput {
 
 interface Props {
   quizId: string;
+  studentEmail: string;
   questions: StudentQuestion[];
   quizType: QuizType;
   onComplete: (answers: StudentQuizAnswerInput[]) => void;
 }
 
-export default function QuizPlayer({ questions, quizType, onComplete }: Props) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [textInput, setTextInput] = useState("");
+interface QuizDraft {
+  currentIndex: number;
+  textInput: string;
+  recordedAnswers: StudentQuizAnswerInput[];
+}
+
+export default function QuizPlayer({ quizId, studentEmail, questions, quizType, onComplete }: Props) {
+  const draftKey = `quiz-hero:draft:quiz:${studentEmail.toLowerCase()}:${quizId}`;
+  const [draft] = useState<QuizDraft | null>(() => readDraft<QuizDraft>(draftKey));
+  const [currentIndex, setCurrentIndex] = useState(
+    Math.min(Math.max(draft?.currentIndex ?? 0, 0), Math.max(questions.length - 1, 0))
+  );
+  const [textInput, setTextInput] = useState(draft?.textInput ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [recordedAnswers, setRecordedAnswers] = useState<StudentQuizAnswerInput[]>([]);
+  const [recordedAnswers, setRecordedAnswers] = useState<StudentQuizAnswerInput[]>(
+    draft?.recordedAnswers ?? []
+  );
+  const [showRestoredDraft, setShowRestoredDraft] = useState(Boolean(draft));
   const hasCompletedRef = useRef(false);
 
   const question = questions[currentIndex];
   const itemQuizType = question?.quiz_type || quizType;
   const isTextInput = itemQuizType === "Identification" || itemQuizType === "Open Ended";
   const progressPercent = ((currentIndex + 1) / questions.length) * 100;
+
+  useEffect(() => {
+    if (!question || hasCompletedRef.current) return;
+    const timeout = window.setTimeout(() => {
+      writeDraft(draftKey, { currentIndex, textInput, recordedAnswers });
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [currentIndex, draftKey, question, recordedAnswers, textInput]);
 
   const advanceQuestion = useCallback(() => {
     setTextInput("");
@@ -53,6 +76,7 @@ export default function QuizPlayer({ questions, quizType, onComplete }: Props) {
         if (!hasCompletedRef.current) {
           hasCompletedRef.current = true;
           setIsSubmitting(true);
+          clearDraft(draftKey);
           onComplete(updated);
         }
       }
@@ -95,6 +119,14 @@ export default function QuizPlayer({ questions, quizType, onComplete }: Props) {
 
   return (
     <div className="view-transition space-y-9">
+      {showRestoredDraft && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-cvsu-green/30 bg-cvsu-light px-4 py-3 text-xs font-semibold text-cvsu-green" role="status">
+          <span>Your previous session was restored.</span>
+          <button type="button" onClick={() => setShowRestoredDraft(false)} className="font-bold underline">
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Header & Linear Progress */}
       <div className="space-y-3.5 pb-5 border-b border-stone-200">
         <div className="flex justify-between items-center text-sm font-semibold text-stone-600">

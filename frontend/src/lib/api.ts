@@ -8,6 +8,8 @@ import {
   CvSUUser,
   GoogleAuthPayload,
   QuizPublishPayload,
+  FacultyAssignedAssessment,
+  Classroom,
 } from "@/types/quiz";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -111,6 +113,33 @@ export async function fetchQuizzes(): Promise<PublishedQuiz[]> {
   return data.quizzes;
 }
 
+export async function fetchClassrooms(): Promise<Classroom[]> {
+  return fetchWithAuth(`${API_URL}/classrooms`);
+}
+
+export async function createClassroom(payload: {
+  name: string;
+  course_code?: string;
+  class_section?: string;
+}): Promise<Classroom> {
+  return fetchWithAuth(`${API_URL}/classrooms`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function joinClassroom(inviteCode: string): Promise<Classroom> {
+  return fetchWithAuth(`${API_URL}/classrooms/join`, {
+    method: "POST",
+    body: JSON.stringify({ invite_code: inviteCode }),
+  });
+}
+
+export async function fetchFacultyAssignedAssessments(): Promise<FacultyAssignedAssessment[]> {
+  const data = await fetchWithAuth(`${API_URL}/faculty-assigned-assessments`);
+  return data.quizzes;
+}
+
 export async function fetchQuizDetail(quizId: string): Promise<QuizDetail> {
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}`);
 }
@@ -134,6 +163,16 @@ export async function updateQuiz(
 export async function deleteQuiz(quizId: string): Promise<void> {
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}`, {
     method: "DELETE",
+  });
+}
+
+export async function assignStudentToQuiz(
+  quizId: string,
+  studentEmail: string
+): Promise<{ message: string; already_assigned: boolean }> {
+  return fetchWithAuth(`${API_URL}/quizzes/${quizId}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ student_email: studentEmail }),
   });
 }
 

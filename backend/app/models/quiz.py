@@ -37,6 +37,8 @@ class Quiz(SQLModel, table=True):
     created_by_email: str | None = Field(default=None, index=True, foreign_key="users.email")
     course_code: str | None = Field(default=None, index=True)
     class_section: str | None = Field(default=None, index=True)
+    classroom_id: str | None = Field(default=None, index=True, foreign_key="classrooms.id")
+    available_from: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
     due_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
     assigned_student_emails: list[str] = Field(
         default_factory=list,

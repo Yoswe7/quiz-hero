@@ -46,8 +46,10 @@ export interface QuizPublishPayload {
   file_name?: string;
   course_code?: string;
   class_section?: string;
+  classroom_id?: string;
+  available_from?: string;
   due_at?: string;
-  assigned_student_emails: string[];
+  assigned_student_emails?: string[];
 }
 
 export interface Question {
@@ -74,7 +76,23 @@ export interface PublishedQuiz {
   created_at: string;
   course_code?: string;
   class_section?: string;
+  classroom_id?: string;
+  available_from?: string;
   due_at?: string;
+  assigned_student_emails?: string[];
+}
+
+export interface FacultyAssignedAssessment extends PublishedQuiz {
+  pending_student_emails: string[];
+}
+
+export interface Classroom {
+  id: string;
+  name: string;
+  course_code?: string;
+  class_section?: string;
+  invite_code: string;
+  created_by_email: string;
 }
 
 export interface QuizDetail {

@@ -128,6 +128,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {!isSidebarCollapsed && <span className="ml-3">Published Assessments</span>}
               </Link>
               <Link
+                href="/studio/assigned"
+                className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                  pathname === "/studio/assigned" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
+                }`}
+              >
+                <span className="w-6 text-center text-base">☑</span>
+                {!isSidebarCollapsed && <span className="ml-3">Assigned</span>}
+              </Link>
+              <Link
                 href="/grades"
                 className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
                   pathname === "/grades" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
