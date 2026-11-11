@@ -6,7 +6,7 @@ import { motion, type Variants } from "framer-motion";
 import { IconCvSU } from "@/components/icons";
 
 interface Props {
-  onOpenAuth: (role: UserRole) => void;
+  onOpenAuth?: (role: UserRole) => void;
 }
 
 // ==========================================
@@ -59,10 +59,16 @@ function IconBookOpen({ className = "w-4 h-4" }: { className?: string }) {
 // ==========================================
 // Main CvSU Quiz Hero Landing Page Component
 // ==========================================
-export default function LandingPage({ onOpenAuth }: Props) {
+export default function LandingPage({}: Props) {
   // Interactive Live Quiz Runner Teaser State
   const [selectedDemoAnswer, setSelectedDemoAnswer] = useState<number | null>(null);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // Helper redirect router
+  const handleRedirect = (role: UserRole) => {
+    const roleParam = role === "teacher" ? "teacher" : "student";
+    window.location.href = `/login?mode=signin&role=${roleParam}`;
+  };
 
   // Framer Motion Physics & Animation Variants
   const containerStagger: Variants = {
@@ -147,7 +153,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
         <header className="fixed inset-x-0 top-0 z-[100] w-full px-6 sm:px-8 h-20 flex items-center justify-between border-b border-white/10 bg-cvsu-green/25 shadow-sm backdrop-blur-lg">
           
           {/* Brand Logo & Emblem */}
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onOpenAuth("student")}>
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => handleRedirect("student")}>
             <div className="w-10 h-10 rounded-2xl bg-cvsu-vibrant text-cvsu-dark flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform duration-200">
               <IconCvSU size={22} />
             </div>
@@ -156,7 +162,6 @@ export default function LandingPage({ onOpenAuth }: Props) {
                 <span className="font-syne text-lg tracking-tight text-cvsu-vibrant group-hover:text-cvsu-vibrant transition-colors">
                   Quiz Hero
                 </span>
-
               </div>
               <p className="text-[11px] text-cvsu-vibrant font-medium">Cavite State University – Imus City Campus</p>
             </div>
@@ -177,13 +182,13 @@ export default function LandingPage({ onOpenAuth }: Props) {
               AI Generator
             </a>
             <button
-              onClick={() => onOpenAuth("teacher")}
+              onClick={() => handleRedirect("teacher")}
               className="text-cvsu-vibrant hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
             >
               Faculty Studio
             </button>
             <button
-              onClick={() => onOpenAuth("teacher")}
+              onClick={() => handleRedirect("teacher")}
               className="text-cvsu-vibrant hover:text-white transition-colors relative py-1 after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-cvsu-vibrant hover:after:w-full after:transition-all after:duration-200 cursor-pointer text-left"
             >
               Question Bank
@@ -257,7 +262,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             <motion.button
               whileHover={{ y: -2, boxShadow: "0 10px 25px -5px rgba(2, 228, 155, 0.3)" }}
               whileTap={{ scale: 0.97 }}
-              onClick={() => onOpenAuth("teacher")}
+              onClick={() => handleRedirect("teacher")}
               className="hidden sm:inline-block text-cvsu-vibrant hover:text-cvsu-dark font-semibold text-xs sm:text-sm rounded-full shadow-sm hover:bg-cvsu-light transition-colors px-3 py-2 cursor-pointer"
             > 
               Faculty Login
@@ -265,7 +270,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             <motion.button
               whileHover={{ y: -2, boxShadow: "0 10px 25px -5px rgba(2, 228, 155, 0.3)" }}
               whileTap={{ scale: 0.97 }}
-              onClick={() => onOpenAuth("student")}
+              onClick={() => handleRedirect("student")}
               className="px-6 py-2.5 bg-transparent text-cvsu-vibrant hover:text-cvsu-dark font-semibold text-xs sm:text-sm rounded-full shadow-sm hover:bg-cvsu-light transition-colors cursor-pointer"
             >
               Sign In
@@ -313,7 +318,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               <motion.button
                 whileHover={{ y: -2, boxShadow: "0 15px 30px -8px rgba(14, 116, 68, 0.4)" }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => onOpenAuth("student")}
+                onClick={() => handleRedirect("student")}
                 className="font-syne px-8 py-4 bg-cvsu-green text-cvsu-dark font-bold text-base rounded-full shadow-lg hover:bg-cvsu-gold transition-colors flex items-center justify-center gap-3 cursor-pointer group border border-cvsu-green"
               >
                 <span>Enter as Student</span>
@@ -323,7 +328,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               <motion.button
                 whileHover={{ x: 3 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => onOpenAuth("teacher")}
+                onClick={() => handleRedirect("teacher")}
                 className="font-syne px-6 py-4 bg-cvsu-green text-cvsu-dark hover:bg-cvsu-gold text-sm font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer border border-cvsu-green rounded-full"
               >
                 <span>Enter as Faculty</span>
@@ -823,7 +828,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               <motion.button
                 whileHover={{ y: -2, boxShadow: "0 15px 30px -8px rgba(14, 116, 68, 0.4)" }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => onOpenAuth("student")}
+                onClick={() => handleRedirect("student")}
                 className="w-full sm:w-auto px-9 py-4 bg-cvsu-green text-cvsu-dark font-bold text-base rounded-full shadow-lg hover:bg-cvsu-gold transition-colors cursor-pointer border border-cvsu-green"
               >
                 Enter as Student
@@ -832,7 +837,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
               <motion.button
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => onOpenAuth("teacher")}
+                onClick={() => handleRedirect("teacher")}
                 className="w-full sm:w-auto px-8 py-4 bg-cvsu-green hover:bg-cvsu-gold text-cvsu-dark font-semibold text-base rounded-full border border-cvsu-green transition-colors cursor-pointer"
               >
                 Enter as Faculty
@@ -866,7 +871,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             <ul className="space-y-2">
               {["Multiple Choice", "True or False", "Identification", "Open-Ended Evaluation", "Topic Explorer"].map((l) => (
                 <li key={l}>
-                  <button onClick={() => onOpenAuth("student")} className="hover:text-white transition-colors cursor-pointer text-left">
+                  <button onClick={() => handleRedirect("student")} className="hover:text-white transition-colors cursor-pointer text-left">
                     {l}
                   </button>
                 </li>
@@ -880,7 +885,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             <ul className="space-y-2">
               {["PDF Syllabus Ingestion", "Textbook Photo OCR", "Class Gradebook", "CSV Export", "Anti-Tamper Security"].map((l) => (
                 <li key={l}>
-                  <button onClick={() => onOpenAuth("teacher")} className="hover:text-white transition-colors cursor-pointer text-left">
+                  <button onClick={() => handleRedirect("teacher")} className="hover:text-white transition-colors cursor-pointer text-left">
                     {l}
                   </button>
                 </li>
@@ -894,7 +899,7 @@ export default function LandingPage({ onOpenAuth }: Props) {
             <ul className="space-y-2">
               {["CvSU Portal Access", "Google Workspace SSO", "Academic Integrity", "Student Support", "Help & Docs"].map((l) => (
                 <li key={l}>
-                  <button onClick={() => onOpenAuth("student")} className="hover:text-white transition-colors cursor-pointer text-left">
+                  <button onClick={() => handleRedirect("student")} className="hover:text-white transition-colors cursor-pointer text-left">
                     {l}
                   </button>
                 </li>
