@@ -119,11 +119,8 @@ export default function LoginPage({ showDevBypass = false }: LoginPageProps) {
   const isFacultyCodeMissing =
     authMode === "signup" && selectedRole === "TEACHER" && facultyCode.trim().length === 0;
   
-  const localTestAuthEnabled =
-    showDevBypass ||
-    (process.env.NODE_ENV !== "production" &&
-      process.env.NEXT_PUBLIC_ENABLE_LOCAL_TEST_AUTH === "true");
-
+  const localTestAuthEnabled = showDevBypass;
+    
   const handleLocalTestLogin = async () => {
     setIsLoading(true);
     setError("");
@@ -193,7 +190,7 @@ export default function LoginPage({ showDevBypass = false }: LoginPageProps) {
               onClick={handleLocalTestLogin}
               className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100 cursor-pointer"
             >
-              ⚡ Use local student test account
+              Use local student test account
             </button>
           )}
 

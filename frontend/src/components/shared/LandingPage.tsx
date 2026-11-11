@@ -215,7 +215,7 @@ export default function LandingPage({}: Props) {
               {isMoreMenuOpen && (
                 <div className="text-cvsu-vibrant absolute right-0 top-full mt-3 w-48 rounded-2xl border border-white/15 bg-[#06281E]/95 p-2 shadow-2xl backdrop-blur-xl">
                   <a
-                    href="/login/developers"
+                    href="/developers"
                     onClick={() => setIsMoreMenuOpen(false)}
                     className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
                   >
@@ -250,7 +250,7 @@ export default function LandingPage({}: Props) {
               </button>
               {isMoreMenuOpen && (
                 <div className="absolute right-0 top-full mt-3 w-44 rounded-2xl border border-white/15 bg-[#06281E]/95 p-2 shadow-2xl backdrop-blur-xl">
-                  <a href="/login/developers" onClick={() => setIsMoreMenuOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors">
+                  <a href="/developers" onClick={() => setIsMoreMenuOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors">
                     Developers
                   </a>
                   <a href="#footer" onClick={() => setIsMoreMenuOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors">
