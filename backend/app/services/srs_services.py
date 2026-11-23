@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -12,7 +12,7 @@ async def get_due_items(session: AsyncSession, user_email: str, limit: int = 50)
     """
     Return items whose next_review_at is <= now or null (new items).
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     q = select(ReviewItem).where(
         ReviewItem.user_email == user_email,
     ).where(
@@ -43,7 +43,7 @@ async def apply_sm2(review_item: ReviewItem, quality: int, session: AsyncSession
     Update review_item according to SM-2 rules and persist the changes.
     quality: integer 0..5
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     q = max(0, min(5, int(quality)))
 

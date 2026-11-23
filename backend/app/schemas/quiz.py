@@ -113,6 +113,7 @@ class StudentQuizDetailResponse(BaseModel):
     created_at: datetime
     course_code: str | None = None
     class_section: str | None = None
+    available_from: datetime | None = None
     due_at: datetime | None = None
     questions: list[StudentQuestionRead]
 

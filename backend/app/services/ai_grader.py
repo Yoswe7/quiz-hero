@@ -1,6 +1,9 @@
+import asyncio
 import re
-from app.core.config import get_model
-from app.services.ai_generator import extract_and_parse_json
+from concurrent.futures import ThreadPoolExecutor
+
+from app.schemas.ai import IdentificationGrade, OpenEndedGrade
+from app.services.llm_router import generate_structured
 
 
 def normalize_string(s: str) -> str:
@@ -36,7 +39,7 @@ def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz
             }
 
     try:
-        model = get_model()
+        schema = IdentificationGrade if quiz_type == "Identification" else OpenEndedGrade
         if quiz_type == "Identification":
             prompt = f"""Grade this identification quiz answer.
 Question: {question}
@@ -57,8 +60,17 @@ Respond ONLY with a JSON object:
 - "score": number from 0 to 100 representing answer quality
 - "feedback": Brief constructive feedback on the answer"""
 
-        response = model.generate_content(prompt)
-        return extract_and_parse_json(response.text)
+        async def _invoke() -> None:
+            return await generate_structured(prompt, schema, task="grading")
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            result = asyncio.run(_invoke())
+        else:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                result = pool.submit(lambda: asyncio.run(_invoke())).result()
+        return result.model_dump()
     except Exception:
         is_close = normalize_string(user_answer) in normalize_string(correct_answer) or normalize_string(correct_answer) in normalize_string(user_answer)
         return {

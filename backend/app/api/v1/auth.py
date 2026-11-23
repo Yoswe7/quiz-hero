@@ -21,29 +21,33 @@ router = APIRouter()
 CVSU_DOMAIN = "@cvsu.edu.ph"
 CVSU_HD = "cvsu.edu.ph"
 
-@router.post("/auth/dev/student", response_model=UserResponse)
-async def authenticate_local_test_student(
-    db: AsyncSession = Depends(get_db_session),
-    _rate_limit: None = Depends(rate_limit(5, 60)),
-):
+async def _authenticate_local_test_user(
+    db: AsyncSession,
+    role: UserRole,
+) -> UserResponse:
     if settings.ENVIRONMENT.lower() == "production" or not settings.ENABLE_LOCAL_TEST_AUTH:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Local test authentication is disabled.",
         )
 
-    email = "local.student@cvsu.edu.ph"
-    name = "Local Student Test Account"
+    if role == UserRole.STUDENT:
+        email = "local.student@cvsu.edu.ph"
+        name = "Local Student Test Account"
+    else:
+        email = "local.teacher@cvsu.edu.ph"
+        name = "Local Teacher Test Account"
+
     user = await get_user_by_email(db, email)
     if not user:
         user = await create_user(
             db=db,
             email=email,
             name=name,
-            role=UserRole.STUDENT.value,
+            role=role.value,
         )
-    elif user.role != UserRole.STUDENT.value:
-        user.role = UserRole.STUDENT.value
+    elif user.role != role.value:
+        user.role = role.value
         await db.commit()
         await db.refresh(user)
 
@@ -51,7 +55,7 @@ async def authenticate_local_test_student(
         data={
             "user_id": user.id,
             "email": user.email,
-            "role": UserRole.STUDENT.value,
+            "role": role.value,
             "sub": user.email,
         },
         expires_delta=timedelta(hours=2),
@@ -65,9 +69,25 @@ async def authenticate_local_test_student(
         full_name=user.name,
         avatar_url=user.avatar_url,
         picture_url=user.picture_url,
-        role=UserRole.STUDENT.value,
+        role=role.value,
         token=access_token,
     )
+
+
+@router.post("/auth/dev/student", response_model=UserResponse)
+async def authenticate_local_test_student(
+    db: AsyncSession = Depends(get_db_session),
+    _rate_limit: None = Depends(rate_limit(5, 60)),
+):
+    return await _authenticate_local_test_user(db, UserRole.STUDENT)
+
+
+@router.post("/auth/dev/teacher", response_model=UserResponse)
+async def authenticate_local_test_teacher(
+    db: AsyncSession = Depends(get_db_session),
+    _rate_limit: None = Depends(rate_limit(5, 60)),
+):
+    return await _authenticate_local_test_user(db, UserRole.TEACHER)
 
 @router.post("/auth/google", response_model=UserResponse)
 @router.post("/api/auth/google", response_model=UserResponse)

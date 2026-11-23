@@ -96,6 +96,19 @@ export async function authenticateLocalTestStudent(): Promise<CvSUUser> {
   return response.json();
 }
 
+export async function authenticateLocalTestTeacher(): Promise<CvSUUser> {
+  const response = await fetch(`${API_URL}/auth/dev/teacher`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new ApiError("Local teacher test authentication is disabled.", response.status);
+  }
+
+  return response.json();
+}
+
 export async function fetchCurrentUser(): Promise<CvSUUser> {
   return fetchWithAuth(`${API_URL}/api/auth/me`);
 }

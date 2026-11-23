@@ -11,7 +11,7 @@ dependencies = [
     "cryptography>=50.0.1",
     "fastapi>=0.141.1",
     "google-auth>=2.57.1",
-    "google-generativeai>=0.8.6",
+    "google-genai>=1.0.0",
     "itsdangerous>=2.2.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
@@ -22,6 +22,8 @@ dependencies = [
     "redis>=5.0.0",
     "sqlmodel>=0.0.42",
     "uvicorn[standard]>=0.52.4",
+    "openai>=3.55.1",
+    "pypdf>=7.1.1",
 ]
 
 [project.scripts]

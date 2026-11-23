@@ -38,3 +38,7 @@ app.include_router(api_router)
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Quiz Hero API (Refactored) is running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

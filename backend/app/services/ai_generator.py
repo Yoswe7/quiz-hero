@@ -1,13 +1,28 @@
+import asyncio
 import base64
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
-from app.core.config import get_model
+from app.schemas.ai import GeneratedQuiz
+from app.services.llm_router import LLMRouterError, generate_structured
 
 
 QUIZ_TYPES = ("Multiple Choice", "True or False", "Identification", "Open Ended")
-MAX_GENERATION_ATTEMPTS = 3
+MAX_GENERATION_ATTEMPTS = 2
+
+
+def _run_router(coro):
+    """Bridge the sync generate_quiz() into the async router from any context,
+    including inside a running uvicorn event loop (blocking is intentional and
+    matches the previous direct-API blocking behaviour)."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 def extract_and_parse_json(raw_text: str) -> Any:
@@ -227,10 +242,10 @@ def generate_quiz(
     file_name: Optional[str] = None,
     sections: Optional[list[dict]] = None,
 ) -> list[dict]:
-    model = get_model()
     expected_count = sum(
         section.get("question_count", 0) for section in (sections or [])
     ) if sections else question_count
+
     prompt = build_prompt(
         topic=topic,
         question_count=question_count,
@@ -241,15 +256,9 @@ def generate_quiz(
         sections=sections,
     )
 
+    raw_bytes = None
     if source_type == "file" and file_base64 and file_mime_type:
         raw_bytes = base64.b64decode(file_base64)
-        blob_part = {
-            "mime_type": file_mime_type,
-            "data": raw_bytes,
-        }
-        source_contents = [blob_part]
-    else:
-        source_contents = []
 
     last_error = "unknown validation error"
     for attempt in range(MAX_GENERATION_ATTEMPTS):
@@ -260,9 +269,20 @@ def generate_quiz(
                 "Generate a complete replacement array. Do not return a partial repair."
             )
 
-        response = model.generate_content([*source_contents, attempt_prompt])
         try:
-            quiz_data = extract_and_parse_json(response.text)
+            # Provider failover happens inside the router (Groq -> Gemini ->
+            # OpenRouter for small text). Provider 429/401/403/timeouts never
+            # burn retries here; only domain/semantic validation failures do.
+            quiz_model = _run_router(
+                generate_structured(
+                    attempt_prompt,
+                    GeneratedQuiz,
+                    task="generation",
+                    file_bytes=raw_bytes,
+                    mime_type=(file_mime_type if source_type == "file" else None),
+                )
+            )
+            quiz_data = [item.model_dump() for item in quiz_model.items]
             validate_quiz_data(
                 quiz_data,
                 quiz_type,
@@ -271,7 +291,12 @@ def generate_quiz(
             )
             return quiz_data
         except (ValueError, json.JSONDecodeError) as error:
+            # Semantic/business-rule mismatches (wrong count, wrong section …):
+            # allow one retry with the validator's feedback attached.
             last_error = str(error)
+        except LLMRouterError:
+            # All providers failed (quota/auth/unavailable/timeout). Fail fast.
+            raise
 
     raise ValueError(
         f"AI generated an invalid assessment after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"

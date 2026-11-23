@@ -893,6 +893,11 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                 </span>
               </div>
             </div>
+            <p className={`text-[11px] mt-1 ${totalMixedCount > 50 ? "text-amber-700 font-semibold" : "text-stone-400"}`}>
+              {totalMixedCount > 50
+                ? `Over the ${50}-question limit for this deployment — reduce section counts before generating.`
+                : `Up to ${50} questions per assessment on this deployment.`}
+            </p>
 
             {/* Quick Presets */}
             <div className="space-y-2">
