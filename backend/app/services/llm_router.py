@@ -540,6 +540,8 @@ async def _attempt_provider(
             return None, "groq key not configured"
         if is_image:
             return None, "groq models do not support this image input"
+        if mime_type == PDF_MIME and not pdf_text:
+            return None, "pdf requires native document support"
         models = GROQ_MODELS[task]
         timeout = _timeout_for(provider, task)
         effective_prompt = _prompt_for("groq")
@@ -564,6 +566,8 @@ async def _attempt_provider(
         if not settings.NVIDIA_API_KEY:
             logger.info("llm_router skip nvidia: NVIDIA_API_KEY not configured")
             return None, "nvidia key not configured"
+        if mime_type == PDF_MIME and not pdf_text:
+            return None, "pdf requires native document support"
         models = NVIDIA_MODELS["vision"] if is_image else NVIDIA_MODELS[task]
         timeout = _timeout_for(provider, task)
         effective_prompt = _prompt_for("nvidia")
@@ -588,6 +592,8 @@ async def _attempt_provider(
         if not settings.OPENROUTER_API_KEY:
             logger.info("llm_router skip openrouter: OPENROUTER_API_KEY not configured")
             return None, "openrouter key not configured"
+        if mime_type == PDF_MIME and not pdf_text:
+            return None, "pdf requires native document support"
         models = OPENROUTER_MODELS["vision"] if is_image else OPENROUTER_MODELS["general"]
         timeout = _timeout_for(provider, task)
         effective_prompt = _prompt_for("openrouter")
@@ -630,14 +636,27 @@ async def generate_structured(
     pdf_text: Optional[str] = None
     if is_pdf:
         pdf_text = _extract_pdf_text(file_bytes)
-        if not pdf_text:
-            raise LLMRouterError(
-                "The uploaded PDF contains no extractable text; "
-                "scanned page images without OCR are not supported here."
-            )
+        if pdf_text and len(pdf_text.strip()) >= 500:
+            # Text-based PDFs are far faster as plain text: Groq/Gemini can
+            # read the extracted text directly, and we avoid shipping the
+            # binary document to every provider (Gemini re-parses it each time).
+            prompt = f"{prompt}\n\nSOURCE MATERIAL:\n{pdf_text.strip()}"
+            file_bytes = None
+            mime_type = None
+            is_pdf = False
+            is_large_text = False
+        else:
+            # Scanned/image-only PDF: only Gemini can read the raw document.
+            pdf_text = None
 
     notes: list[str] = []
     last_error: Optional[BaseException] = None
+
+    if pdf_text is not None and not is_pdf:
+        logger.info(
+            "llm_router pdf text extracted (%d chars) -> routing as plain text",
+            len(pdf_text),
+        )
 
     for provider in _route_order(is_large_text, is_image, is_pdf):
         attempt, models = await _attempt_provider(
@@ -659,8 +678,12 @@ async def generate_structured(
                 continue
             try:
                 logger.info("llm_router attempt %s:%s (task=%s)", provider, model, task)
+                started = time.perf_counter()
                 result = await attempt(model)
-                logger.info("llm_router success %s:%s (task=%s)", provider, model, task)
+                logger.info(
+                    "llm_router success %s:%s (task=%s) in %.1fs",
+                    provider, model, task, time.perf_counter() - started,
+                )
                 return result
             except asyncio.TimeoutError as exc:
                 last_error = exc
@@ -709,8 +732,12 @@ async def generate_chat(
                 continue
             try:
                 logger.info("llm_router chat attempt %s:%s", provider, model)
+                started = time.perf_counter()
                 reply = await attempt(model)
-                logger.info("llm_router chat success %s:%s", provider, model)
+                logger.info(
+                    "llm_router chat success %s:%s in %.1fs",
+                    provider, model, time.perf_counter() - started,
+                )
                 return reply
             except asyncio.TimeoutError as exc:
                 last_error = exc
