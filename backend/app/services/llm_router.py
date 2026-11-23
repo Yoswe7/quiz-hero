@@ -16,7 +16,7 @@ from google.genai import types
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from app.core.config import NVIDIA_MODELS, settings
+from app.core.config import GONKARO_MODELS, NVIDIA_MODELS, settings
 
 logger = logging.getLogger("quiz_hero.llm")
 logger.setLevel(logging.INFO)
@@ -38,8 +38,14 @@ def _timeout_for(provider: str, task: str) -> float:
     they get generous budgets instead of starving under the Groq/Gemini limits."""
     if provider == "nvidia":
         return {"generation": 90.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
+    if provider == "gonkaro":
+        # GLM-5.3-Flash on Gonkaro measured ~77s for 20 questions: a short
+        # deadline would always abort before the response arrives.
+        return {"generation": 120.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
     return GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
 PDF_MIME = "application/pdf"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DOCX_TEXT_MAX_CHARS = 25_000
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
 MAX_TEXT_CHARS_ROUTING = 24_000
 DAILY_COOLDOWN = 60 * 60  # suspected daily (RPD) quota exhaustion
@@ -237,6 +243,18 @@ def _content_parts(prompt: str, file_bytes: Optional[bytes], mime_type: Optional
 
 
 # ---------------------------------------------------------- extraction
+def _extract_docx_text(file_bytes: bytes) -> str:
+    """Extract text from a .docx (python-docx), capped like PDF text."""
+    try:
+        from docx import Document
+        document = Document(io.BytesIO(file_bytes))
+        text = "\n".join(p.text for p in document.paragraphs)
+    except Exception as exc:
+        logger.warning("docx extraction failed (%s)", type(exc).__name__)
+        return ""
+    return text.strip()[:DOCX_TEXT_MAX_CHARS]
+
+
 def _extract_pdf_text(file_bytes: bytes) -> str:
     try:
         reader = pypdf.PdfReader(io.BytesIO(file_bytes))
@@ -322,6 +340,8 @@ def _openai_client(provider: str, timeout: float) -> AsyncOpenAI:
         base_url, api_key = "https://api.groq.com/openai/v1", settings.GROQ_API_KEY
     elif provider == "nvidia":
         base_url, api_key = "https://integrate.api.nvidia.com/v1", settings.NVIDIA_API_KEY
+    elif provider == "gonkaro":
+        base_url, api_key = "https://api.gonkarouter.io/v1", settings.GONKARO_API_KEY
     else:
         base_url, api_key = "https://openrouter.ai/api/v1", settings.OPENROUTER_API_KEY
     return AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=0)
@@ -500,13 +520,18 @@ async def _call_openai_compatible(
 
 # --------------------------------------------------------- routing
 def _route_order(is_large_text: bool, is_image: bool, is_pdf: bool) -> list[str]:
+    # gonkaro is always last: its GLM model works but is much slower than the
+    # other providers, so it is a genuine fallback rather than a peer.
     if is_pdf:
-        return ["gemini", "nvidia", "groq", "openrouter"]
+        return ["gemini", "nvidia", "groq", "openrouter", "gonkaro"]
     if is_image:
         return ["gemini", "nvidia", "openrouter"]
     if is_large_text:
-        return ["nvidia", "gemini", "openrouter", "groq"]
-    return ["groq", "gemini", "nvidia", "openrouter"]
+        return ["nvidia", "gemini", "openrouter", "groq", "gonkaro"]
+    # Generation gets an OpenRouter fallback right after Groq: measured
+    # `openrouter/free` at 4.7s (5q) and 8.1s (15q), comparable to Groq's
+    # own numbers, with independent rate limits.
+    return ["groq", "openrouter", "gemini", "nvidia", "gonkaro"]
 
 
 async def _attempt_provider(
@@ -607,6 +632,32 @@ async def _attempt_provider(
             models,
         )
 
+    if provider == "gonkaro":
+        if not settings.GONKARO_API_KEY:
+            logger.info("llm_router skip gonkaro: GONKARO_API_KEY not configured")
+            return None, "gonkaro key not configured"
+        if mime_type == PDF_MIME and not pdf_text:
+            return None, "pdf requires native document support"
+        models = GONKARO_MODELS[task]
+        timeout = _timeout_for(provider, task)
+        effective_prompt = _prompt_for("gonkaro")
+        return (
+            lambda model: _call_openai_compatible(
+                provider,
+                model,
+                task,
+                prompt=effective_prompt if task != "chat" else None,
+                schema=schema,
+                file_bytes=file_bytes if is_image else None,
+                mime_type=mime_type if is_image else None,
+                system_prompt=system_prompt,
+                messages=messages,
+                max_output_tokens=max_output_tokens,
+                timeout=timeout,
+            ),
+            models,
+        )
+
     if provider == "openrouter":
         if not settings.OPENROUTER_API_KEY:
             logger.info("llm_router skip openrouter: OPENROUTER_API_KEY not configured")
@@ -650,9 +701,21 @@ async def generate_structured(
 
     is_image = bool(file_bytes) and mime_type in IMAGE_MIMES
     is_pdf = bool(file_bytes) and mime_type == PDF_MIME
+    is_word = bool(file_bytes) and mime_type == DOCX_MIME
     is_large_text = (not file_bytes) and len(prompt) > MAX_TEXT_CHARS_ROUTING
 
     pdf_text: Optional[str] = None
+    if is_word:
+        # .docx is text-based: extract it once and take the same fast
+        # plain-text route as text PDFs (Groq first).
+        docx_text = _extract_docx_text(file_bytes)
+        logger.info("llm_router docx text extracted (%d chars)", len(docx_text))
+        if docx_text:
+            prompt = f"SOURCE MATERIAL:\n{docx_text}\n\n--- END OF SOURCE MATERIAL ---\n\n{prompt}"
+        file_bytes = None
+        mime_type = None
+        is_word = False
+        is_large_text = False
     if is_pdf:
         pdf_text = _extract_pdf_text(file_bytes)
         if pdf_text and len(pdf_text.strip()) >= 500:

@@ -7,9 +7,11 @@ from sqlmodel import select
 from app.schemas.quiz import QuizRequest
 from app.models import Quiz, Question, Option, Classroom
 from app.services.ai_generator import generate_quiz
+from app.services.llm_router import DOCX_MIME
 
 ALLOWED_MIME_TYPES = {
     "application/pdf",
+    DOCX_MIME,
     "image/jpeg",
     "image/jpg",
     "image/png",
@@ -72,7 +74,7 @@ def validate_source_payload(request: QuizRequest) -> None:
         if request.file_mime_type and request.file_mime_type.lower() not in ALLOWED_MIME_TYPES:
             raise HTTPException(
                 status_code=415,
-                detail=f"Unsupported file format '{request.file_mime_type}'. Supported: PDF, JPEG, PNG, WebP.",
+                detail=f"Unsupported file format '{request.file_mime_type}'. Supported: PDF, DOCX, JPEG, PNG, WebP.",
             )
 
     if request.source_type == "text" and request.content_text:

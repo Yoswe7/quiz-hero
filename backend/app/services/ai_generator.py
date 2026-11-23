@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from itertools import combinations
 from typing import Any, Optional
 
 from app.schemas.ai import GeneratedQuiz
@@ -89,6 +90,7 @@ def build_prompt(
     base += f"Return EXACTLY {total_count} objects. Never return fewer or more.\n"
     base += "Use only facts supported by the topic or supplied source. Do not invent names, terms, dates, or definitions.\n"
     base += "Each item must test one distinct fact or concept. Do not duplicate or paraphrase another item.\n"
+    base += 'Each item must include a 1-indexed "question_number" between 1 and the quiz length.\n'
     base += "Respond ONLY with a JSON array of objects without additional text.\n"
 
     if is_mixed and active_sections:
@@ -174,10 +176,12 @@ def _trim_to_expected(
 ) -> Optional[list]:
     """Drop a small number of surplus items the model added.
 
-    Models routinely overshoot by one or two questions (e.g. 41 items for a
-    40-item request), and failing the whole generation over that burns a retry
-    for no benefit. Align the response against the expected sequence and keep
-    the first matching item per slot; surplus entries are discarded. Short
+    Models routinely overshoot (e.g. 41-44 items for a 40-item request), and
+    failing the whole generation over that burns a retry for no benefit.
+    Surplus entries that match the expected sequence are dropped during
+    alignment; when alignment fails, the response is de-duplicated and
+    re-aligned, then the surplus items (and any items that block alignment)
+    are dropped until the response matches the expected outline. Short
     responses are never padded, and a large overflow is left untouched so the
     validator reports the real mismatch.
     """
@@ -185,29 +189,63 @@ def _trim_to_expected(
         return None
 
     surplus = len(quiz_data) - len(expected_items)
-    tolerance = min(2, max(1, len(expected_items) // 20))
+    # Modest acceptance band: chatty models overshoot a little, and rejecting
+    # a fully valid response for "just one extra" is worse than using it.
+    tolerance = max(2, min(4, len(expected_items) // 10))
     if surplus > tolerance:
         return None
 
-    kept: list = []
-    cursor = 0
-    for expected_type, expected_section in expected_items:
-        while cursor < len(quiz_data):
-            item = quiz_data[cursor]
-            cursor += 1
-            if not isinstance(item, dict):
-                continue
-            item_type = item.get("quiz_type") or expected_type
-            if item_type != expected_type:
-                continue
-            if expected_section and item.get("section_name") != expected_section:
-                continue
-            kept.append(item)
-            break
-        else:
-            # Could not align the response with the expected outline.
-            return None
-    return kept
+    def _align(items: list) -> Optional[list]:
+        kept: list = []
+        cursor = 0
+        for expected_type, expected_section in expected_items:
+            while cursor < len(items):
+                item = items[cursor]
+                cursor += 1
+                if not isinstance(item, dict):
+                    continue
+                item_type = item.get("quiz_type") or expected_type
+                if item_type != expected_type:
+                    continue
+                if expected_section and item.get("section_name") != expected_section:
+                    continue
+                kept.append(item)
+                break
+            else:
+                # Could not align the response with the expected outline.
+                return None
+        return kept
+
+    kept = _align(quiz_data)
+    if kept is not None:
+        return kept
+
+    # Models sometimes interleave surplus or duplicate items that break
+    # strict alignment: align a de-duplicated view of the same response.
+    seen: set[str] = set()
+    deduped: list = []
+    for item in quiz_data:
+        if not isinstance(item, dict):
+            continue
+        key = re.sub(r"\s+", " ", _clean_text(item.get("question")).casefold()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    if len(deduped) != len(quiz_data):
+        kept = _align(deduped)
+        if kept is not None and len(kept) == len(expected_items):
+            return kept
+
+    # Last resort: drop the surplus items (and any items that block
+    # alignment) until the response matches the expected outline.
+    for drop in combinations(range(len(quiz_data)), surplus):
+        drop_set = set(drop)
+        reduced = [item for i, item in enumerate(quiz_data) if i not in drop_set]
+        kept = _align(reduced)
+        if kept is not None and len(kept) == len(expected_items):
+            return kept
+    return None
 
 
 def validate_quiz_data(
@@ -235,55 +273,147 @@ def validate_quiz_data(
     seen_questions: set[str] = set()
     for index, item in enumerate(quiz_data):
         expected_type, expected_section = expected_items[index]
-        if not isinstance(item, dict):
-            raise ValueError(f"Question {index + 1} is not an object")
+        _validate_item(item, expected_type, expected_section, seen_questions, index + 1)
 
-        question = _clean_text(item.get("question"))
-        answer = _clean_text(item.get("answer"))
-        item_type = item.get("quiz_type") or expected_type
-        options = item.get("options")
 
-        if not question or not answer:
-            raise ValueError(f"Question {index + 1} must have non-empty question and answer text")
-        if item_type != expected_type:
-            raise ValueError(f"Question {index + 1} must be type '{expected_type}'")
-        if expected_section and item.get("section_name") != expected_section:
-            raise ValueError(f"Question {index + 1} has the wrong section")
+def _validate_item(
+    item: Any,
+    expected_type: str,
+    expected_section: Optional[str],
+    seen_questions: set[str],
+    index: int,
+) -> None:
+    """Run all per-question validation rules and re-index question_number.
 
-        normalized_question = re.sub(r"\s+", " ", question.casefold()).strip()
-        if normalized_question in seen_questions:
-            raise ValueError(f"Question {index + 1} duplicates an earlier question")
-        seen_questions.add(normalized_question)
+    `index` is the 1-based position of the item in the expected sequence.
+    Raises on any rule violation.
+    """
+    if not isinstance(item, dict):
+        raise ValueError(f"Question {index} is not an object")
 
-        if not isinstance(options, list):
-            raise ValueError(f"Question {index + 1} must include an options array")
-        option_text = [_clean_text(option) for option in options]
-        if any(not option for option in option_text):
-            raise ValueError(f"Question {index + 1} contains an empty option")
+    question = _clean_text(item.get("question"))
+    answer = _clean_text(item.get("answer"))
+    item_type = item.get("quiz_type") or expected_type
+    options = item.get("options")
 
-        if expected_type == "Multiple Choice":
-            if len(option_text) != 4 or len({option.casefold() for option in option_text}) != 4:
-                raise ValueError(f"Question {index + 1} must have exactly 4 unique options")
-            if answer not in option_text:
-                raise ValueError(f"Question {index + 1} answer must match one option exactly")
-        elif expected_type == "True or False":
-            if option_text != ["True", "False"] or answer not in option_text:
-                raise ValueError(f"Question {index + 1} must use True/False options and answer")
-        elif expected_type == "Identification":
-            if option_text or len(answer.split()) > 8 or len(answer) > 100:
-                raise ValueError(f"Question {index + 1} must have one short answer and no options")
-            if re.search(rf"\b{re.escape(answer.casefold())}\b", normalized_question):
-                raise ValueError(f"Question {index + 1} reveals its answer")
-        elif expected_type == "Open Ended":
-            if option_text or len(answer) < 20:
-                raise ValueError(f"Question {index + 1} needs a substantive model answer")
+    if not question or not answer:
+        raise ValueError(f"Question {index} must have non-empty question and answer text")
+    if item_type != expected_type:
+        raise ValueError(f"Question {index} must be type '{expected_type}'")
+    if expected_section and item.get("section_name") != expected_section:
+        raise ValueError(f"Question {index} has the wrong section")
 
-        item["question"] = question
-        item["answer"] = answer
-        item["quiz_type"] = expected_type
-        item["options"] = option_text
+    normalized_question = re.sub(r"\s+", " ", question.casefold()).strip()
+    if normalized_question in seen_questions:
+        raise ValueError(f"Question {index} duplicates an earlier question")
+    seen_questions.add(normalized_question)
+
+    if not isinstance(options, list):
+        raise ValueError(f"Question {index} must include an options array")
+    option_text = [_clean_text(option) for option in options]
+    if any(not option for option in option_text):
+        raise ValueError(f"Question {index} contains an empty option")
+
+    if expected_type == "Multiple Choice":
+        if len(option_text) != 4 or len({option.casefold() for option in option_text}) != 4:
+            raise ValueError(f"Question {index} must have exactly 4 unique options")
+        if answer not in option_text:
+            raise ValueError(f"Question {index} answer must match one option exactly")
+    elif expected_type == "True or False":
+        if option_text != ["True", "False"] or answer not in option_text:
+            raise ValueError(f"Question {index} must use True/False options and answer")
+    elif expected_type == "Identification":
+        if option_text or len(answer.split()) > 8 or len(answer) > 100:
+            raise ValueError(f"Question {index} must have one short answer and no options")
+        if re.search(rf"\b{re.escape(answer.casefold())}\b", normalized_question):
+            raise ValueError(f"Question {index} reveals its answer")
+    elif expected_type == "Open Ended":
+        if option_text or len(answer) < 20:
+            raise ValueError(f"Question {index} needs a substantive model answer")
+
+    item["question"] = question
+    item["answer"] = answer
+    item["quiz_type"] = expected_type
+    item["options"] = option_text
+    if expected_section:
+        item["section_name"] = expected_section
+    item["question_number"] = index
+
+
+def _validate_items_prefix(
+    items: list,
+    expected_items: list[tuple[str, Optional[str]]],
+) -> list:
+    """Validate the valid prefix of an undersized response against expected_items."""
+    if not isinstance(items, list):
+        raise ValueError("Response is not a JSON array")
+    seen_questions: set[str] = set()
+    kept: list = []
+    for index, item in enumerate(items[: len(expected_items)]):
+        expected_type, expected_section = expected_items[index]
+        _validate_item(item, expected_type, expected_section, seen_questions, index + 1)
+        kept.append(item)
+    return kept
+
+
+def _validate_new_items(
+    new_items: list,
+    existing_items: list,
+    expected_items: list[tuple[str, Optional[str]]],
+) -> list:
+    """Validate follow-up (top-up) items against the unfilled tail of the outline.
+
+    `existing_items` are the already-validated questions; the new items must
+    fill `expected_items[len(existing_items):]` and must not duplicate them.
+    """
+    if not isinstance(new_items, list):
+        raise ValueError("Response is not a JSON array")
+    start = len(existing_items)
+    tail = expected_items[start:]
+    if len(new_items) > len(tail):
+        new_items = new_items[: len(tail)]
+    seen_questions: set[str] = {
+        re.sub(r"\s+", " ", _clean_text(q.get("question")).casefold()).strip()
+        for q in existing_items
+    }
+    out: list = []
+    for offset, item in enumerate(new_items):
+        expected_type, expected_section = tail[offset]
+        _validate_item(item, expected_type, expected_section, seen_questions, start + offset + 1)
+        out.append(item)
+    return out
+
+
+def _top_up_prompt(
+    base_prompt: str,
+    existing_items: list,
+    expected_items: list[tuple[str, Optional[str]]],
+    missing: int,
+) -> str:
+    """Build the follow-up prompt that asks the model only for the missing items."""
+    parts = [base_prompt]
+    if existing_items:
+        stems = [_clean_text(item.get("question")) for item in existing_items]
+        parts.append(
+            "Previously generated questions (do not repeat or paraphrase them):\n"
+            + json.dumps(stems, ensure_ascii=False)
+        )
+    tail = expected_items[len(existing_items):]
+    slot_lines = []
+    for slot_index, (expected_type, expected_section) in enumerate(tail[:missing], start=len(existing_items) + 1):
+        label = expected_type
         if expected_section:
-            item["section_name"] = expected_section
+            label += f" [{expected_section}]"
+        slot_lines.append(f"- slot {slot_index}: {label}")
+    parts.append(
+        f"The previous response ended early. Generate exactly {missing} additional "
+        "questions for the missing slots:\n" + "\n".join(slot_lines)
+    )
+    parts.append(
+        'Return only the additional items; each must include "question", "quiz_type", '
+        '"options", "answer", and a 1-indexed "question_number".'
+    )
+    return "\n".join(parts)
 
 
 def generate_quiz(
@@ -300,6 +430,7 @@ def generate_quiz(
     expected_count = sum(
         section.get("question_count", 0) for section in (sections or [])
     ) if sections else question_count
+    expected_items = _expected_items(expected_count or 0, quiz_type, sections)
 
     prompt = build_prompt(
         topic=topic,
@@ -315,10 +446,23 @@ def generate_quiz(
     if source_type == "file" and file_base64 and file_mime_type:
         raw_bytes = base64.b64decode(file_base64)
 
+    def _generate(prompt_text: str) -> GeneratedQuiz:
+        return _run_router(
+            generate_structured(
+                prompt_text,
+                GeneratedQuiz,
+                task="generation",
+                file_bytes=raw_bytes,
+                mime_type=(file_mime_type if source_type == "file" else None),
+            )
+        )
+
     last_error = "unknown validation error"
-    for attempt in range(MAX_GENERATION_ATTEMPTS):
+    attempts = 0
+    while attempts < MAX_GENERATION_ATTEMPTS:
+        attempts += 1
         attempt_prompt = prompt
-        if attempt > 0:
+        if attempts > 1:
             attempt_prompt += (
                 f"\nThe previous response failed validation: {last_error}.\n"
                 "Generate a complete replacement array. Do not return a partial repair."
@@ -328,22 +472,70 @@ def generate_quiz(
             # Provider failover happens inside the router (Groq -> Gemini ->
             # OpenRouter for small text). Provider 429/401/403/timeouts never
             # burn retries here; only domain/semantic validation failures do.
-            quiz_model = _run_router(
-                generate_structured(
-                    attempt_prompt,
-                    GeneratedQuiz,
-                    task="generation",
-                    file_bytes=raw_bytes,
-                    mime_type=(file_mime_type if source_type == "file" else None),
+            quiz_data = [item.model_dump() for item in _generate(attempt_prompt).items]
+
+            # 1) Trim surplus items the model added beyond the expected count
+            #    (e.g. 41 items for a 40-item request).
+            if len(quiz_data) > expected_count:
+                trimmed = _trim_to_expected(quiz_data, expected_items)
+                if trimmed is not None:
+                    logger.info(
+                        "ai_generator trimmed %d surplus item(s): %d -> %d",
+                        len(quiz_data) - len(trimmed),
+                        len(quiz_data),
+                        len(trimmed),
+                    )
+                    quiz_data[:] = trimmed
+
+            # 2) Fill the count: validate the valid prefix of undersized
+            #    responses and top up the missing tail with targeted calls.
+            if len(quiz_data) == expected_count:
+                validate_quiz_data(
+                    quiz_data,
+                    quiz_type,
+                    question_count=expected_count,
+                    sections=sections,
                 )
-            )
-            quiz_data = [item.model_dump() for item in quiz_model.items]
-            validate_quiz_data(
-                quiz_data,
-                quiz_type,
-                question_count=expected_count,
-                sections=sections,
-            )
+            elif len(quiz_data) < expected_count:
+                quiz_data = _validate_items_prefix(quiz_data, expected_items)
+                while len(quiz_data) < expected_count and attempts < MAX_GENERATION_ATTEMPTS:
+                    attempts += 1
+                    missing = expected_count - len(quiz_data)
+                    top_prompt = _top_up_prompt(prompt, quiz_data, expected_items, missing)
+                    try:
+                        new_items = [
+                            item.model_dump()
+                            for item in _run_router(
+                                generate_structured(
+                                    top_prompt,
+                                    GeneratedQuiz,
+                                    task="generation",
+                                    file_bytes=raw_bytes,
+                                    mime_type=(file_mime_type if source_type == "file" else None),
+                                )
+                            ).items
+                        ]
+                    except (ValueError, json.JSONDecodeError) as error:
+                        last_error = str(error)
+                        break
+                    appended = _validate_new_items(new_items, quiz_data, expected_items)
+                    if not appended:
+                        last_error = f"top-up call produced no valid items (expected {missing} more)"
+                        break
+                    quiz_data.extend(appended[:missing])
+                if len(quiz_data) != expected_count:
+                    raise ValueError(
+                        f"Expected exactly {expected_count} items but received {len(quiz_data)}"
+                    )
+            else:
+                raise ValueError(
+                    f"Expected exactly {expected_count} items but received {len(quiz_data)}"
+                )
+
+            # question_number is internal tracking: re-indexed during
+            # validation; strip it so DB rows and student responses stay as-is.
+            for item in quiz_data:
+                item.pop("question_number", None)
             return quiz_data
         except (ValueError, json.JSONDecodeError) as error:
             # Semantic/business-rule mismatches (wrong count, wrong section …):

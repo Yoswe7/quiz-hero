@@ -30,9 +30,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
+    GONKARO_API_KEY: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
     CLOUDFLARE_API_TOKEN: str = ""
-    GEMINI_GENERATION_MODELS: list[str] = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+    # flash-lite was measured faster for generation (1.6s) than flash 3.8
+    # (7-70s); putting it first cuts time-to-first-token in the main chain.
+    GEMINI_GENERATION_MODELS: list[str] = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
     GEMINI_GRADING_MODELS: list[str] = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite-preview"]
     GEMINI_CHAT_MODELS: list[str] = ["gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite"]
     GROQ_GENERATION_MODELS: list[str] = [
@@ -75,6 +78,13 @@ class Settings(BaseSettings):
         "nvidia/nemotron-3.5-super-vl-120b-a12b",
         "google/gemma-4-31b-it",
     ]
+    # GonkaroRouter (OpenAI-compatible aggregator). Local benchmarks:
+    # GLM-5.3-Flash answered chat in ~1s, grading in ~5s, and produced valid
+    # 20-item JSON in ~77s; DeepSeek-V4 and MiniMax-M2.7 timed out on a
+    # 5-item generation, so only GLM is enabled for now.
+    GONKARO_GENERATION_MODELS: list[str] = ["zai-org/GLM-5.3-Flash"]
+    GONKARO_GRADING_MODELS: list[str] = ["zai-org/GLM-5.3-Flash"]
+    GONKARO_CHAT_MODELS: list[str] = ["zai-org/GLM-5.3-Flash"]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -115,6 +125,11 @@ NVIDIA_MODELS = {
     "grading": settings.NVIDIA_GRADING_MODELS,
     "chat": settings.NVIDIA_CHAT_MODELS,
     "vision": settings.NVIDIA_VISION_MODELS,
+}
+GONKARO_MODELS = {
+    "generation": settings.GONKARO_GENERATION_MODELS,
+    "grading": settings.GONKARO_GRADING_MODELS,
+    "chat": settings.GONKARO_CHAT_MODELS,
 }
 
 # Client setup is lazy per call site; nothing runs at import time except the

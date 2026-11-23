@@ -24,6 +24,7 @@ dependencies = [
     "uvicorn[standard]>=0.52.4",
     "openai>=3.55.1",
     "pypdf>=7.1.1",
+    "python-docx>=1.2.0",
 ]
 
 [project.scripts]

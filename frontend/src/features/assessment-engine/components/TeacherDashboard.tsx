@@ -729,14 +729,18 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                 Upload {sourceType === "pdf" ? "Course PDF Document" : "Lecture Photo / Textbook Diagram"}
               </label>
               <span className="text-[11px] text-stone-400 font-mono">
-                {sourceType === "pdf" ? "PDF (Max 15MB)" : "JPG, PNG, WEBP (Max 15MB)"}
+                {sourceType === "pdf" ? "PDF, DOCX (Max 15MB)" : "JPG, PNG, WEBP (Max 15MB)"}
               </span>
             </div>
 
             <input
               type="file"
               ref={fileInputRef}
-              accept={sourceType === "pdf" ? "application/pdf" : "image/png,image/jpeg,image/jpg,image/webp"}
+              accept={
+                sourceType === "pdf"
+                  ? "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  : "image/png,image/jpeg,image/jpg,image/webp"
+              }
               onChange={handleFileChange}
               className="hidden"
               id="file-upload-input"

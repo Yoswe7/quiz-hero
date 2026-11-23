@@ -25,6 +25,9 @@ class QuizItem(BaseModel):
     options: list[str] = Field(default_factory=list)
     answer: str
     section_name: Optional[str] = None
+    # Internal tracker only: re-indexed by the validator and stripped before
+    # saving, so DB rows and student responses are unchanged.
+    question_number: Optional[int] = None
 
 class GeneratedQuiz(BaseModel):
     """Wrapper for structured Gemini quiz output (never a bare list)."""
