@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     GEMINI_CHAT_MODEL: str = "gemini-3.1-flash-lite-preview"
     GROQ_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
+    NVIDIA_API_KEY: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
     CLOUDFLARE_API_TOKEN: str = ""
     GEMINI_GENERATION_MODELS: list[str] = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
@@ -53,6 +54,26 @@ class Settings(BaseSettings):
     OPENROUTER_VISION_MODELS: list[str] = [
         "nvidia/nemotron-3.5-super-vl:free",
         "openrouter/free",
+    ]
+    # NVIDIA NIM (build.nvidia.com) free-tier endpoints. Slugs are case
+    # sensitive and change when NVIDIA republishes a model version. These are
+    # the chat-capable models present in this account's /v1/models catalog.
+    NVIDIA_GENERATION_MODELS: list[str] = [
+        "nvidia/nemotron-3.5-bolt-e4b",
+        "z-ai/glm-5.3-flash",
+        "mistralai/mistral-large-4-1t-a52b",
+    ]
+    NVIDIA_GRADING_MODELS: list[str] = [
+        "nvidia/nemotron-3.5-bolt-e4b",
+        "z-ai/glm-5.3-flash",
+    ]
+    NVIDIA_CHAT_MODELS: list[str] = [
+        "nvidia/nemotron-3.5-bolt-e4b",
+        "z-ai/glm-5.3-flash",
+    ]
+    NVIDIA_VISION_MODELS: list[str] = [
+        "nvidia/nemotron-3.5-super-vl-120b-a12b",
+        "google/gemma-4-31b-it",
     ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -88,6 +109,12 @@ GROQ_MODELS = {
 OPENROUTER_MODELS = {
     "general": settings.OPENROUTER_GENERAL_MODELS,
     "vision": settings.OPENROUTER_VISION_MODELS,
+}
+NVIDIA_MODELS = {
+    "generation": settings.NVIDIA_GENERATION_MODELS,
+    "grading": settings.NVIDIA_GRADING_MODELS,
+    "chat": settings.NVIDIA_CHAT_MODELS,
+    "vision": settings.NVIDIA_VISION_MODELS,
 }
 
 # Client setup is lazy per call site; nothing runs at import time except the

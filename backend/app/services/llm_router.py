@@ -16,7 +16,7 @@ from google.genai import types
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from app.core.config import settings
+from app.core.config import NVIDIA_MODELS, settings
 
 logger = logging.getLogger("quiz_hero.llm")
 logger.setLevel(logging.INFO)
@@ -30,6 +30,15 @@ if not logger.handlers:
 GEN_TIMEOUT = 25.0
 GRADE_TIMEOUT = 12.0
 CHAT_TIMEOUT = 10.0
+
+
+def _timeout_for(provider: str, task: str) -> float:
+    """Per-provider request deadline. NVIDIA's free hosted endpoints run large
+    reasoning models and measured 30-40s even for a two-item completion, so
+    they get generous budgets instead of starving under the Groq/Gemini limits."""
+    if provider == "nvidia":
+        return {"generation": 90.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
+    return GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
 PDF_MIME = "application/pdf"
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
 MAX_TEXT_CHARS_ROUTING = 24_000
@@ -106,8 +115,20 @@ def _classify(exc: BaseException) -> str:
     return "error"
 
 
-_RETRY_PATTERNS = [
-    re.compile(r"retryDelay[\"']?\s*[:=]\s*[\"']?(\d+)\s*s"),
+def _rejects_response_format(exc: BaseException) -> bool:
+    """True when a provider refused response_format/json mode rather than the
+    request itself. Used to retry once without structured mode."""
+    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if code not in (None, 400, 422):
+        return False
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in ("response_format", "json mode", "json_object", "guided", "structured output")
+    )
+
+
+_RETRY_PATTERNS = [    re.compile(r"retryDelay[\"']?\s*[:=]\s*[\"']?(\d+)\s*s"),
     re.compile(r"[Rr]etry[-_ ][Aa]fter[\"'\s:=]*(\d+)"),
     re.compile(r"retry in\s+(\d+)\s*s"),
 ]
@@ -299,6 +320,8 @@ async def _call_gemini(
 def _openai_client(provider: str, timeout: float) -> AsyncOpenAI:
     if provider == "groq":
         base_url, api_key = "https://api.groq.com/openai/v1", settings.GROQ_API_KEY
+    elif provider == "nvidia":
+        base_url, api_key = "https://integrate.api.nvidia.com/v1", settings.NVIDIA_API_KEY
     else:
         base_url, api_key = "https://openrouter.ai/api/v1", settings.OPENROUTER_API_KEY
     return AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=0)
@@ -354,7 +377,7 @@ async def _call_openai_compatible(
 
     if schema is not None:
         max_output_tokens = max_output_tokens if max_output_tokens is not None else (
-            4096 if task == "generation" else 256
+            8192 if task == "generation" else 1024
         )
         if is_vision:
             response_format = {"type": "json_object"}
@@ -419,7 +442,7 @@ async def _call_openai_compatible(
         extra_body = (
             {"provider": {"require_parameters": True}} if provider == "openrouter" else None
         )
-        response = await client.chat.completions.create(
+        request_kwargs = dict(
             model=model,
             messages=request_messages,
             response_format=response_format,
@@ -427,8 +450,22 @@ async def _call_openai_compatible(
             max_tokens=max_output_tokens,
             extra_body=extra_body,
         )
+        try:
+            response = await client.chat.completions.create(**request_kwargs)
+        except Exception as exc:
+            # Some hosts (notably individual NVIDIA NIM models) reject
+            # json_object mode. Retry once without response_format; the schema
+            # instruction embedded in the prompt still constrains the output.
+            if not _rejects_response_format(exc):
+                raise
+            logger.info(
+                "%s/%s rejected json_object; retrying without response_format",
+                provider,
+                model,
+            )
+            request_kwargs.pop("response_format", None)
+            response = await client.chat.completions.create(**request_kwargs)
         return schema.model_validate_json(_strip_fences(response.choices[0].message.content or ""))
-
     # chat path: free-form, no structured mode
     request_messages = _chat_messages(
         prompt, system_prompt, messages, file_bytes, mime_type, False, None
@@ -445,12 +482,12 @@ async def _call_openai_compatible(
 # --------------------------------------------------------- routing
 def _route_order(is_large_text: bool, is_image: bool, is_pdf: bool) -> list[str]:
     if is_pdf:
-        return ["gemini", "groq", "openrouter"]
+        return ["gemini", "nvidia", "groq", "openrouter"]
     if is_image:
-        return ["gemini", "openrouter"]
+        return ["gemini", "nvidia", "openrouter"]
     if is_large_text:
-        return ["gemini", "openrouter", "groq"]
-    return ["groq", "gemini", "openrouter"]
+        return ["nvidia", "gemini", "openrouter", "groq"]
+    return ["groq", "gemini", "nvidia", "openrouter"]
 
 
 async def _attempt_provider(
@@ -480,7 +517,7 @@ async def _attempt_provider(
             logger.info("llm_router skip gemini: GEMINI_API_KEY not configured")
             return None, "gemini key not configured"
         models = GEMINI_MODELS[task]
-        timeout = GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
+        timeout = _timeout_for(provider, task)
         return (
             lambda model: _call_gemini(
                 model,
@@ -504,7 +541,7 @@ async def _attempt_provider(
         if is_image:
             return None, "groq models do not support this image input"
         models = GROQ_MODELS[task]
-        timeout = GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
+        timeout = _timeout_for(provider, task)
         effective_prompt = _prompt_for("groq")
         return (
             lambda model: _call_openai_compatible(
@@ -523,12 +560,36 @@ async def _attempt_provider(
             models,
         )
 
+    if provider == "nvidia":
+        if not settings.NVIDIA_API_KEY:
+            logger.info("llm_router skip nvidia: NVIDIA_API_KEY not configured")
+            return None, "nvidia key not configured"
+        models = NVIDIA_MODELS["vision"] if is_image else NVIDIA_MODELS[task]
+        timeout = _timeout_for(provider, task)
+        effective_prompt = _prompt_for("nvidia")
+        return (
+            lambda model: _call_openai_compatible(
+                provider,
+                model,
+                task,
+                prompt=effective_prompt if task != "chat" else None,
+                schema=schema,
+                file_bytes=file_bytes if is_image else None,
+                mime_type=mime_type if is_image else None,
+                system_prompt=system_prompt,
+                messages=messages,
+                max_output_tokens=max_output_tokens,
+                timeout=timeout,
+            ),
+            models,
+        )
+
     if provider == "openrouter":
         if not settings.OPENROUTER_API_KEY:
             logger.info("llm_router skip openrouter: OPENROUTER_API_KEY not configured")
             return None, "openrouter key not configured"
         models = OPENROUTER_MODELS["vision"] if is_image else OPENROUTER_MODELS["general"]
-        timeout = GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
+        timeout = _timeout_for(provider, task)
         effective_prompt = _prompt_for("openrouter")
         return (
             lambda model: _call_openai_compatible(
