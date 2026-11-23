@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
@@ -8,6 +9,8 @@ from typing import Any, Optional
 from app.schemas.ai import GeneratedQuiz
 from app.services.llm_router import LLMRouterError, generate_structured
 
+
+logger = logging.getLogger("quiz_hero.ai")
 
 QUIZ_TYPES = ("Multiple Choice", "True or False", "Identification", "Open Ended")
 MAX_GENERATION_ATTEMPTS = 2
@@ -165,6 +168,48 @@ def _clean_text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _trim_to_expected(
+    quiz_data: list,
+    expected_items: list[tuple[str, Optional[str]]],
+) -> Optional[list]:
+    """Drop a small number of surplus items the model added.
+
+    Models routinely overshoot by one or two questions (e.g. 41 items for a
+    40-item request), and failing the whole generation over that burns a retry
+    for no benefit. Align the response against the expected sequence and keep
+    the first matching item per slot; surplus entries are discarded. Short
+    responses are never padded, and a large overflow is left untouched so the
+    validator reports the real mismatch.
+    """
+    if len(quiz_data) <= len(expected_items):
+        return None
+
+    surplus = len(quiz_data) - len(expected_items)
+    tolerance = min(2, max(1, len(expected_items) // 20))
+    if surplus > tolerance:
+        return None
+
+    kept: list = []
+    cursor = 0
+    for expected_type, expected_section in expected_items:
+        while cursor < len(quiz_data):
+            item = quiz_data[cursor]
+            cursor += 1
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("quiz_type") or expected_type
+            if item_type != expected_type:
+                continue
+            if expected_section and item.get("section_name") != expected_section:
+                continue
+            kept.append(item)
+            break
+        else:
+            # Could not align the response with the expected outline.
+            return None
+    return kept
+
+
 def validate_quiz_data(
     quiz_data: list,
     quiz_type: str,
@@ -174,6 +219,16 @@ def validate_quiz_data(
     expected_items = _expected_items(question_count or 0, quiz_type, sections)
     if not isinstance(quiz_data, list):
         raise ValueError("Response is not a JSON array")
+    if len(quiz_data) > len(expected_items):
+        trimmed = _trim_to_expected(quiz_data, expected_items)
+        if trimmed is not None:
+            logger.info(
+                "ai_generator trimmed %d surplus item(s): %d -> %d",
+                len(quiz_data) - len(trimmed),
+                len(quiz_data),
+                len(trimmed),
+            )
+            quiz_data[:] = trimmed
     if len(quiz_data) != len(expected_items):
         raise ValueError(f"Expected exactly {len(expected_items)} items but received {len(quiz_data)}")
 
