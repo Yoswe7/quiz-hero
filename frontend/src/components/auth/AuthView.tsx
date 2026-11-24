@@ -1,45 +1,28 @@
 "use client";
 
-import React, { useState, useEffect, ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { ReactNode } from "react";
 import Link from "next/link";
 
 interface AuthViewProps {
-  mode?: "signin" | "signup";
-  role?: "STUDENT" | "TEACHER";
+  mode: "signin" | "signup";
+  role: "STUDENT" | "TEACHER";
   onRoleChange?: (role: "STUDENT" | "TEACHER") => void;
   onModeChange?: (mode: "signin" | "signup") => void;
   children: ReactNode;
 }
 
 export function AuthView({
-  mode: propsMode,
-  role: propsRole,
+  mode,
+  role,
   onRoleChange,
   onModeChange,
   children,
 }: AuthViewProps) {
-  const searchParams = useSearchParams();
-
-  const urlMode = searchParams.get("mode") as "signin" | "signup" | null;
-  const urlRoleParam = searchParams.get("role")?.toLowerCase();
-  const urlRole = urlRoleParam === "faculty" || urlRoleParam === "teacher" ? "TEACHER" : "STUDENT";
-
-  const [mode, setMode] = useState<"signin" | "signup">(propsMode || urlMode || "signin");
-  const [role, setRole] = useState<"STUDENT" | "TEACHER">(propsRole || urlRole);
-
-  useEffect(() => {
-    if (urlMode) setMode(urlMode);
-    if (searchParams.has("role")) setRole(urlRole);
-  }, [searchParams, urlMode, urlRole]);
-
   const handleRoleToggle = (newRole: "STUDENT" | "TEACHER") => {
-    setRole(newRole);
     if (onRoleChange) onRoleChange(newRole);
   };
 
   const handleModeToggle = (newMode: "signin" | "signup") => {
-    setMode(newMode);
     if (onModeChange) onModeChange(newMode);
   };
 

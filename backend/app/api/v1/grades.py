@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,20 @@ from app.services.srs_services import create_or_get_item
 from app.core.rate_limit import ai_concurrency_limit, rate_limit
 
 router = APIRouter()
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Normalize a timestamp read from the DB for safe UTC comparison.
+
+    SQLite drops the offset on tz-aware columns (values come back naive, in UTC);
+    Postgres returns tz-aware datetimes. Comparison with an aware 'now' needs
+    both sides to agree.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 @router.post("/submit-quiz")
 async def submit_quiz(
@@ -199,11 +213,12 @@ async def get_student_progress(
         streak += 1
         cursor -= timedelta(days=1)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     due_reviews = sum(
         1
         for item in review_items
-        if item.next_review_at is None or item.next_review_at <= now
+        if _as_utc(item.next_review_at) is None
+        or _as_utc(item.next_review_at) <= now
     )
     reviewed_items = sum(1 for item in review_items if item.last_reviewed_at is not None)
     mastered_items = sum(1 for item in review_items if item.repetitions >= 3)
@@ -245,7 +260,10 @@ async def get_grades(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user)
 ):
-    submissions = await get_submissions_by_role(db, current_user.role, current_user.email)
+    # get_submissions_by_role expects a lowercase role ("teacher"), but roles are
+    # stored uppercase and returned as-is by require_teacher, so teachers would
+    # silently fall into the student-only branch. Normalize at the boundary.
+    submissions = await get_submissions_by_role(db, (current_user.role or "").lower(), current_user.email)
     return {"submissions": submissions}
 
 

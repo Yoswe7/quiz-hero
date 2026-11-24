@@ -19,7 +19,7 @@ from app.schemas.quiz import (
 )
 from app.models import User, Classroom, ClassroomMembership, Quiz, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
-from app.services.quiz_service import validate_source_payload, publish_quiz_workflow
+from app.services.quiz_service import validate_source_payload, publish_quiz_workflow, resolve_question_count
 from app.services.ai_generator import generate_quiz
 from app.services.ai_grader import grade_open_answer
 from app.crud.crud_quiz import (
@@ -48,7 +48,7 @@ async def generate_quiz_endpoint(
     validate_source_payload(request)
     try:
         topic_title = (request.topic or "").strip() or (request.file_name if request.file_name else "Course Assessment")
-        count = max(1, min(50, request.question_count or 10))
+        count = resolve_question_count(request, default=10)
         raw_sections = getattr(request, "sections", None)
         sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
         

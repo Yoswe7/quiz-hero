@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.schemas.ai import ChatRequest
 from app.models import User
 from app.api.dependencies import get_optional_current_user
-from app.core.config import get_groq_client, settings
-from app.core.rate_limit import ai_concurrency_limit, rate_limit
+from app.core.config import settings
+from app.core.rate_limit import gemini_concurrency_limit, rate_limit
+from app.services.llm_router import generate_chat
 
 router = APIRouter()
 
@@ -18,6 +19,9 @@ async def chat_with_ai(
     _ai_limit: None = Depends(ai_concurrency_limit()),
 ):
     try:
+        if not (settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.OPENROUTER_API_KEY):
+            raise HTTPException(status_code=500, detail="No AI provider is configured on the server.")
+
         if not request.messages:
             raise HTTPException(status_code=400, detail="Messages array cannot be empty.")
 
@@ -53,28 +57,14 @@ Tone & Guidelines:
 """
 
         recent_messages = request.messages[-10:] if len(request.messages) > 10 else request.messages
-        messages = [{"role": "system", "content": system_instruction}]
-        for msg in recent_messages[:-1]:
-            role = "assistant" if msg.role.lower() in ("assistant", "model") else "user"
-            messages.append({"role": role, "content": msg.content})
+        router_messages = [{"role": msg.role, "content": msg.content} for msg in recent_messages]
 
-        latest_user_message = recent_messages[-1].content
-
-        async with get_groq_client() as client:
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=settings.GROQ_CHAT_MODEL,
-                    messages=[*messages, {"role": "user", "content": latest_user_message}],
-                    temperature=0.7,
-                    max_completion_tokens=800,
-                    reasoning_effort="none",
-                ),
+        try:
+            reply = await asyncio.wait_for(
+                generate_chat(router_messages, system_prompt=system_instruction, max_output_tokens=800),
                 timeout=30,
             )
 
-        reply = response.choices[0].message.content
-        if not reply:
-            raise HTTPException(status_code=502, detail="Groq returned an empty chat response.")
         return {"reply": reply}
 
     except asyncio.TimeoutError:

@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { authenticateCvSUGoogle, authenticateLocalTestStudent, ApiError } from "@/lib/api";
+import { authenticateCvSUGoogle, authenticateLocalTestStudent, authenticateLocalTestTeacher, ApiError } from "@/lib/api";
 import { AuthMode } from "@/types/quiz";
 import { AuthView } from "@/components/auth/AuthView";
 
@@ -12,12 +12,40 @@ interface LoginPageProps {
   showDevBypass?: boolean;
 }
 
+function parseInitialRole(roleParam: string | null): "STUDENT" | "TEACHER" {
+  const normalized = roleParam?.toLowerCase();
+  return normalized === "faculty" || normalized === "teacher" ? "TEACHER" : "STUDENT";
+}
+
+function parseInitialMode(modeParam: string | null): AuthMode {
+  return modeParam === "signup" ? "signup" : "signin";
+}
+
 export default function LoginPage({ showDevBypass = false }: LoginPageProps) {
+  // Wrap the client content in a Suspense boundary so useSearchParams() does not
+  // de-opt prerendering of the /login and /login/developers routes.
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen w-full bg-[#07241d]" aria-hidden="true" />
+      }
+    >
+      <LoginPageContent showDevBypass={showDevBypass} />
+    </Suspense>
+  );
+}
+
+function LoginPageContent({ showDevBypass = false }: LoginPageProps) {
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { user, login, isLoaded } = useAuth();
 
-  const [authMode, setAuthMode] = useState<AuthMode>("signin");
-  const [selectedRole, setSelectedRole] = useState<"STUDENT" | "TEACHER">("STUDENT");
+  const [authMode, setAuthMode] = useState<AuthMode>(() =>
+    parseInitialMode(searchParams.get("mode"))
+  );
+  const [selectedRole, setSelectedRole] = useState<"STUDENT" | "TEACHER">(() =>
+    parseInitialRole(searchParams.get("role"))
+  );
   const [facultyCode, setFacultyCode] = useState<string>("");
   const [cachedCredential, setCachedCredential] = useState<string | null>(null);
 
@@ -121,16 +149,19 @@ export default function LoginPage({ showDevBypass = false }: LoginPageProps) {
   
   const localTestAuthEnabled = showDevBypass || process.env.NEXT_PUBLIC_ENABLE_LOCAL_TEST_AUTH === "true";
     
-  const handleLocalTestLogin = async () => {
+  const handleLocalTestLogin = async (role: "STUDENT" | "TEACHER") => {
     setIsLoading(true);
     setError("");
     try {
-      const authUser = await authenticateLocalTestStudent();
+      const authUser =
+        role === "TEACHER"
+          ? await authenticateLocalTestTeacher()
+          : await authenticateLocalTestStudent();
       if (!authUser.token) {
         throw new Error("Missing local test session token.");
       }
       login(authUser, authUser.token);
-      router.push("/dashboard");
+      router.push(role === "TEACHER" ? "/studio" : "/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Local test login failed.");
     } finally {
@@ -183,15 +214,24 @@ export default function LoginPage({ showDevBypass = false }: LoginPageProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Local Developer Test Account Bypass (Only if enabled or on /login/developers) */}
+          {/* Only rendered by /login/developers (showDevBypass) */}
           {localTestAuthEnabled && (
-            <button
-              type="button"
-              onClick={handleLocalTestLogin}
-              className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100 cursor-pointer"
-            >
-              Use local student test account
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => handleLocalTestLogin("STUDENT")}
+                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100 cursor-pointer"
+              >
+                Use local student test account
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLocalTestLogin("TEACHER")}
+                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100 cursor-pointer"
+              >
+                Use local faculty test account
+              </button>
+            </div>
           )}
 
           {/* Teacher Code Input if Teacher is selected during Signup */}

@@ -181,8 +181,25 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
                     </td>
                     <td className="py-3.5 px-5 text-stone-700 max-w-xs truncate font-medium">{g.topic}</td>
                     <td className="py-3.5 px-5 text-center font-mono font-bold text-[#1C1C1C]">
-                      {g.score} / {g.total_questions}
+                      {g.final_score} / {g.total_questions}
                     </td>
+                    {g.is_verified && (
+                      <td className="py-3.5 px-5 text-center">
+                        <span
+                          className="inline-flex items-center rounded-full bg-green-100 text-green-800 text-xs font-bold px-2 py-1"
+                        >
+                          Verified by Faculty
+                        </span>
+                      </td>
+                    ) || (
+                      <td className="py-3.5 px-5 text-center">
+                        <span
+                          className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1"
+                        >
+                          Pending Verification
+                        </span>
+                      </td>
+                    )}
                     <td className="py-3.5 px-5 text-right">
                       <span
                         className={`inline-block font-mono font-bold px-3 py-1 rounded-full border text-[11px] ${
@@ -267,6 +284,20 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
                   Student: <span className="font-bold text-cvsu-vibrant">{selectedSubmission.student_name}</span>
                   {selectedSubmission.student_email && ` (${selectedSubmission.student_email})`}
                 </p>
+                {selectedSubmission.faculty_remarks && (
+                  <p className="text-xs text-white/70 mt-1">
+                    Faculty: <span className="font-bold text-cvsu-vibrant">{selectedSubmission.faculty_remarks}</span>
+                  </p>
+                )}
+                {selectedSubmission.is_verified && (
+                  <p className="text-xs text-green-200 mt-1">
+                    Verified by Faculty
+                  </p>
+                ) || (
+                  <p className="text-xs text-amber-200 mt-1">
+                    Pending Verification
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm font-mono font-bold px-3 py-1 rounded-full bg-cvsu-vibrant text-cvsu-dark">
