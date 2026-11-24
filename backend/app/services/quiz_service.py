@@ -136,8 +136,11 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         file_mime_type=request.file_mime_type,
         file_name=request.file_name,
         sections=sections_dict,
+        generation_mode=request.generation_mode,
     )
-    questions_data = await gen_res if inspect.isawaitable(gen_res) else gen_res
+    gen_result = await gen_res if inspect.isawaitable(gen_res) else gen_res
+    questions_data, fallback_notice = gen_result
+    request._fallback_notice = fallback_notice
     
     quiz_id = str(uuid.uuid4())[:8]
     
@@ -186,4 +189,4 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
     await db.commit()
     await db.refresh(new_quiz)
     
-    return new_quiz
+    return new_quiz, getattr(request, "_fallback_notice", None)

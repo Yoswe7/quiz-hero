@@ -10,7 +10,7 @@ from itertools import combinations
 from typing import Any, Optional
 
 from app.schemas.ai import GeneratedQuiz
-from app.services.llm_router import LLMRouterError, generate_structured
+from app.services.llm_router import LLMRouterError, generate_structured, _extract_pdf_text
 
 
 logger = logging.getLogger("quiz_hero.ai")
@@ -440,7 +440,8 @@ async def generate_quiz(
     file_mime_type: Optional[str] = None,
     file_name: Optional[str] = None,
     sections: Optional[list[dict]] = None,
-) -> list[dict]:
+    generation_mode: str = "fast",
+) -> tuple[list[dict], Optional[str]]:
     expected_count = sum(
         section.get("question_count", 0) for section in (sections or [])
     ) if sections else question_count
@@ -460,6 +461,28 @@ async def generate_quiz(
     if source_type == "file" and file_base64 and file_mime_type:
         raw_bytes = base64.b64decode(file_base64)
 
+    fallback_notice: Optional[str] = None
+    effective_mode = generation_mode or "fast"
+    if source_type == "file" and raw_bytes is not None and file_mime_type:
+        mime = file_mime_type.lower()
+        name = (file_name or "").lower()
+        if effective_mode == "fast":
+            is_image = mime.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp"))
+            if is_image:
+                effective_mode = "complex"
+                fallback_notice = "Switched to Complex Mode because image files need vision processing."
+            elif mime == "application/pdf":
+                try:
+                    pdf_text = _extract_pdf_text(raw_bytes)
+                    import pypdf
+                    page_count = max(1, len(pypdf.PdfReader(__import__("io").BytesIO(raw_bytes)).pages))
+                    if len((pdf_text or "").strip()) < 50 * page_count:
+                        effective_mode = "complex"
+                        fallback_notice = "Switched to Complex Mode because the PDF appears scanned or image-heavy."
+                except Exception:
+                    effective_mode = "complex"
+                    fallback_notice = "Switched to Complex Mode because the PDF could not be read as text."
+
     def _generate(prompt_text: str) -> GeneratedQuiz:
         return _run_router(
             generate_structured(
@@ -468,6 +491,7 @@ async def generate_quiz(
                 task="generation",
                 file_bytes=raw_bytes,
                 mime_type=(file_mime_type if source_type == "file" else None),
+                generation_mode=effective_mode,
             )
         )
 
@@ -526,6 +550,7 @@ async def generate_quiz(
                                     task="generation",
                                     file_bytes=raw_bytes,
                                     mime_type=(file_mime_type if source_type == "file" else None),
+                                    generation_mode=effective_mode,
                                 )
                             ).items
                         ]
@@ -550,7 +575,7 @@ async def generate_quiz(
             # validation; strip it so DB rows and student responses stay as-is.
             for item in quiz_data:
                 item.pop("question_number", None)
-            return quiz_data
+            return quiz_data, fallback_notice
         except (ValueError, json.JSONDecodeError) as error:
             # Semantic/business-rule mismatches (wrong count, wrong section …):
             # allow one retry with the validator's feedback attached.

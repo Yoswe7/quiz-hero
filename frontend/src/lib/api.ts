@@ -139,7 +139,7 @@ export async function fetchCurrentUser(): Promise<CvSUUser> {
 
 export async function publishQuiz(
   payload: QuizPublishPayload
-): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; time_limit_minutes?: number | null; questions: Question[] } }> {
+): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; time_limit_minutes?: number | null; questions: Question[] }; fallback_notice?: string | null }> {
   return fetchWithAuth(`${API_URL}/publish-quiz`, {
     method: "POST",
     body: JSON.stringify(payload),

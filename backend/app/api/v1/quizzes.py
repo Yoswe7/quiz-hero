@@ -53,7 +53,7 @@ async def generate_quiz_endpoint(
         raw_sections = getattr(request, "sections", None)
         sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
         
-        questions = await generate_quiz(
+        questions, fallback_notice = await generate_quiz(
             topic=topic_title,
             question_count=count,
             quiz_type=request.quiz_type or "Multiple Choice",
@@ -63,8 +63,9 @@ async def generate_quiz_endpoint(
             file_mime_type=request.file_mime_type,
             file_name=request.file_name,
             sections=sections_dict,
+            generation_mode=request.generation_mode,
         )
-        return {"quiz_data": questions}
+        return {"quiz_data": questions, "fallback_notice": fallback_notice}
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="AI returned invalid JSON. Please try again.")
     except ValueError as e:
@@ -83,12 +84,13 @@ async def publish_quiz_endpoint(
 ):
     validate_source_payload(request)
     try:
-        new_quiz = await publish_quiz_workflow(request, current_user.email, db)
+        new_quiz, fallback_notice = await publish_quiz_workflow(request, current_user.email, db)
         persisted_quiz = await get_quiz_by_id(db, new_quiz.id)
         if not persisted_quiz:
             raise HTTPException(status_code=500, detail="Assessment was created but could not be loaded for review.")
         return {
             "message": "Assessment draft created for review.",
+            "fallback_notice": fallback_notice,
                 "quiz": {
                     "id": persisted_quiz.id,
                     "topic": persisted_quiz.topic,

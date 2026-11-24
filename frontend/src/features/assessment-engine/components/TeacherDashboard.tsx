@@ -89,6 +89,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     assignedStudentEmails?: string;
   } | null>(() => readDraft(draftKey));
   const [sourceType, setSourceType] = useState<SourceMaterialType>(savedDraft?.sourceType || "topic");
+  const [generationMode, setGenerationMode] = useState<"fast" | "complex">("fast");
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [topic, setTopic] = useState(savedDraft?.topic || "");
   const [notesText, setNotesText] = useState(savedDraft?.notesText || "");
   const [questionCount, setQuestionCount] = useState(savedDraft?.questionCount || 5);
@@ -312,6 +314,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         file_base64: (sourceType === "image" || sourceType === "pdf") ? (fileBase64 || undefined) : undefined,
         file_mime_type: selectedFile?.type,
         file_name: selectedFile?.name,
+        generation_mode: generationMode,
         course_code: courseCode.trim() || undefined,
         class_section: classSection.trim() || undefined,
         classroom_id: classroomId || undefined,
@@ -322,6 +325,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       };
 
       const result = await publishQuiz(payload);
+      setFallbackNotice(result.fallback_notice || null);
       draftCompletedRef.current = true;
       clearDraft(draftKey);
       setPreviewQuestions(result.quiz.questions);
@@ -1301,6 +1305,35 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             <textarea aria-label="Assigned student emails" value={assignedStudentEmails} onChange={(e) => setAssignedStudentEmails(e.target.value)} placeholder="Optional individual student emails, separated by commas or spaces" rows={3} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
           )}
         </div>
+
+        {/* Generation Mode Selector */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
+          <p className="text-[11px] font-bold text-amber-950 uppercase tracking-wider">Generation Mode</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setGenerationMode("fast")}
+              className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${generationMode === "fast" ? "border-cvsu-green bg-cvsu-light text-cvsu-dark" : "border-amber-200 bg-white text-slate-700"}`}
+            >
+              Fast Mode
+              <span className="block text-[10px] font-medium text-slate-500">Best for lectures, readings, and text-only files (faster)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setGenerationMode("complex")}
+              className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${generationMode === "complex" ? "border-cvsu-green bg-cvsu-light text-cvsu-dark" : "border-amber-200 bg-white text-slate-700"}`}
+            >
+              Complex Mode
+              <span className="block text-[10px] font-medium text-slate-500">Best for math, diagrams, tables, and scanned PDFs</span>
+            </button>
+          </div>
+        </div>
+
+        {fallbackNotice && (
+          <p className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+            {fallbackNotice}
+          </p>
+        )}
 
         {/* Generate Button with CvSU Primary Styling */}
         <button

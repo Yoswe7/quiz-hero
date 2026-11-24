@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 from typing import Any, Optional
 
@@ -24,6 +26,7 @@ class QuizRequest(BaseModel):
     due_at: datetime | None = None
     assigned_student_emails: list[str] = Field(default_factory=list)
     time_limit_minutes: int | None = Field(default=None, ge=1)
+    generation_mode: Literal["fast", "complex"] = "fast"
 
     @field_validator("assigned_student_emails")
     @classmethod

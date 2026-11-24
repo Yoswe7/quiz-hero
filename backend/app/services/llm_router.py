@@ -695,6 +695,7 @@ async def generate_structured(
     file_bytes: Optional[bytes] = None,
     mime_type: Optional[str] = None,
     system_prompt: Optional[str] = None,
+    generation_mode: str = "fast",
 ) -> BaseModel:
     if not isinstance(schema, type) or not issubclass(schema, BaseModel):
         raise TypeError("schema must be a Pydantic BaseModel subclass")
@@ -718,7 +719,8 @@ async def generate_structured(
         is_large_text = False
     if is_pdf:
         pdf_text = _extract_pdf_text(file_bytes)
-        if pdf_text and len(pdf_text.strip()) >= 500:
+        threshold = 50 if generation_mode == "fast" else 500
+        if pdf_text and len(pdf_text.strip()) >= threshold:
             # Text-based PDFs are far faster as plain text: Groq/Gemini can
             # read the extracted text directly, and we avoid shipping the
             # binary document to every provider (Gemini re-parses it each time).
