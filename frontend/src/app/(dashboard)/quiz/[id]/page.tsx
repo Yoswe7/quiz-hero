@@ -47,6 +47,20 @@ export default function QuizPage() {
     return <div className="p-8 text-center text-cvsu-green animate-pulse font-medium">Loading Assessment...</div>;
   }
   if (error || !quizDetail) return <div className="p-8 text-center text-red-500 font-medium">Failed to load assessment.</div>;
+
+  const isStudent = user?.role?.toUpperCase() === "STUDENT";
+  const isPastDue =
+    isStudent &&
+    !isTeacherPreview &&
+    !!quizDetail.due_at &&
+    new Date(quizDetail.due_at).getTime() < Date.now();
+  if (isPastDue) {
+    return (
+      <div className="p-8 text-center text-red-600 font-medium">
+        This assessment is past its due date and is no longer available.
+      </div>
+    );
+  }
   if (isTeacherPreview) {
     if (answersError || !answerData) {
       return <div className="p-8 text-center text-red-500 font-medium">Failed to load the answer key.</div>;
