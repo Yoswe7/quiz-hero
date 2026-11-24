@@ -25,3 +25,8 @@ async def delete_submission(db: AsyncSession, submission_id: int) -> bool:
     await db.delete(submission)
     await db.commit()
     return True
+
+
+async def get_submission_by_id(db: AsyncSession, submission_id: int) -> Submission | None:
+    result = await db.execute(select(Submission).where(Submission.id == submission_id))
+    return result.scalar_one_or_none()

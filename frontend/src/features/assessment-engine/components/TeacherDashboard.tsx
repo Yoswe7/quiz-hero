@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz } from "@/lib/api";
+import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz, API_URL } from "@/lib/api";
 import {
   IconList,
   IconToggle,
@@ -160,6 +160,12 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [assignmentMessage, setAssignmentMessage] = useState("");
   const [showDraftNotice, setShowDraftNotice] = useState(Boolean(savedDraft));
   const draftCompletedRef = useRef(false);
+  const [facultyRemarks, setFacultyRemarks] = useState("");
+  const [showSubmissionDrawer, setShowSubmissionDrawer] = useState(false);
+  const [selectedAttempt, setSelectedAttempt] = useState<
+    | { submissionId: number; attemptData: any }
+    | null
+  >(null);
 
   useEffect(() => {
     if (view !== "generate" || draftCompletedRef.current) return;
@@ -340,6 +346,28 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     }
   };
 
+  const toggleQuizRetakes = async (quizId: string, currentAllowRetakes: boolean = false) => {
+    try {
+      const result = await fetch(`${API_URL}/faculty/quizzes/${quizId}/retakes`, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("cvsu_token")}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ enabled: !currentAllowRetakes }),
+      });
+      const data = await result.json();
+      if (!result.ok) {
+        alert(data.detail || "Failed to toggle retakes.");
+        return;
+      }
+      // Refresh the quizzes list
+      loadQuizzes();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to toggle retakes.");
+    }
+  };
+
   const handleAssignStudent = async () => {
     if (!assigningQuiz) return;
     const normalizedEmail = studentEmail.trim().toLowerCase();
@@ -360,6 +388,27 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       setAssignmentError(err instanceof Error ? err.message : "Failed to assign assessment.");
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const openSubmissionDrawer = async (quizId: string) => {
+    // Fetch submissions for this quiz from the API
+    // For now, we'll set the drawer open
+    setShowSubmissionDrawer(true);
+  };
+
+  const saveAttemptGrade = async () => {
+    if (!selectedAttempt) return;
+    const { submissionId } = selectedAttempt;
+    // Call the faculty grading endpoint
+    try {
+      // TODO: Implement the API call to grade the attempt
+      setShowSubmissionDrawer(false);
+      setSelectedAttempt(null);
+      setFacultyRemarks("");
+      loadQuizzes();
+    } catch (err) {
+      setAssignmentError(err instanceof Error ? err.message : "Failed to save grade.");
     }
   };
 
@@ -456,6 +505,19 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                   </button>
                   <button type="button" onClick={() => router.push(`/quiz/${quiz.id}?preview=teacher`)} className="rounded-full border border-cvsu-green bg-cvsu-green px-4 py-2 text-xs font-bold text-white hover:bg-cvsu-dark">
                     {quiz.review_status === "published" ? "Preview" : "Review"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleQuizRetakes(quiz.id, Boolean(quiz.allow_retakes))}
+                    className={`rounded-full border border-cvsu-green/40 bg-cvsu-light px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 btn-tactile hover:-translate-y-0.5 cursor-pointer ${
+                      quiz.allow_retakes
+                        ? "bg-cvsu-green text-white"
+                        : "border-cvsu-green text-cvsu-green"
+                    }`}
+                  >
+                    <span className={quiz.allow_retakes ? "text-white" : "text-cvsu-green"}>
+                      {quiz.allow_retakes ? "Retakes: On" : "Retakes: Off"}
+                    </span>
                   </button>
                   <button type="button" onClick={() => handleDeleteQuiz(quiz.id, quiz.topic)} disabled={deletingId === quiz.id} className="rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
                     {deletingId === quiz.id ? "Deleting..." : "Delete"}
@@ -599,6 +661,124 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
   return (
     <div className="view-transition space-y-8">
+      {showSubmissionDrawer && selectedAttempt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-6"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
+            <div className="p-6 border-b border-stone-200 bg-cvsu-dark text-white">
+              <h3 className="font-syne text-lg">
+                Submissions & Grading - {selectedAttempt?.attemptData?.topic || "Assessment"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSubmissionDrawer(false)}
+                className="absolute right-4 top-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto">
+              <div className="space-y-4">
+                {selectedAttempt?.attemptData?.answers?.length
+                  ? selectedAttempt.attemptData.answers.map(
+                      (item: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-2xl border text-xs space-y-2 transition-all ${item.is_correct ? "bg-white border-stone-200" : "bg-red-50/50 border-red-200"}`}
+                        >
+                          <div className="flex items-start gap-2.5 font-bold text-[#1C1C1C]">
+                            {item.is_correct ? (
+                              <svg
+                                width={18}
+                                height={18}
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                className="text-cvsu-green shrink-0 mt-0.5"
+                              >
+                                <path d="M12 3l9 9-3 9-9-3 9-9z" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width={18}
+                                height={18}
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                className="text-red-600 shrink-0 mt-0.5"
+                              >
+                                <path d="M18 6L6 18M6 6l12 12" />
+                              </svg>
+                            )}
+                            <span>{idx + 1}. {item.question}</span>
+                          </div>
+
+                          <div className="pl-6 space-y-1">
+                            <p className="text-stone-600">
+                              Submitted Answer: <span className="font-bold text-[#1C1C1C]">
+                                {item.user_answer || "—"}
+                              </span>
+                            </p>
+                            <p className="text-stone-500">
+                              Correct Model Answer: <span className="font-bold">
+                                {item.correct_answer}
+                              </span>
+                            </p>
+                            <p className="text-stone-500">
+                              Faculty Override: <span className="font-bold text-cvsu-green">
+                                is_overridden={item.is_overridden}, awarded_points={item.awarded_points}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    )
+                  : (
+                    <p className="text-xs text-stone-500 text-center py-6">
+                      No itemized answer breakdown recorded for this submission.
+                    </p>
+                  )}
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-stone-200 bg-white">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm text-stone-500">
+                    Raw Score: {selectedAttempt?.attemptData?.raw_score || 0}
+                  </p>
+                  <p className="text-sm font-bold">
+                    Final Score: {selectedAttempt?.attemptData?.final_score || 0}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <textarea
+                    value={facultyRemarks || ""}
+                    onChange={(e) => setFacultyRemarks(e.target.value)}
+                    placeholder="Enter faculty remarks..."
+                    className="w-full rounded-2xl border border-stone-300 px-4 py-2 text-sm outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
+                    rows={3}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => saveAttemptGrade()}
+                    className="px-6 py-2.5 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-2 shadow-md btn-tactile hover:-translate-y-0.5 cursor-pointer"
+                  >
+                    Verify & Save Grade
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDraftNotice && (
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-cvsu-green/30 bg-cvsu-light px-4 py-3 text-xs font-semibold text-cvsu-green" role="status">
           <span>Your unfinished assessment draft was restored.</span>
@@ -1099,6 +1279,52 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         )}
       </div>
 
+      {/* Submissions & Grading Drawer Section */}
+      {quizzes.length > 0 && (
+        <div className="space-y-6">
+          <div className="border-b border-stone-200 pb-3">
+            <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
+              Submissions & Grading
+            </h3>
+            <p className="text-xs text-stone-500">
+              Review and grade student attempts for published assessments.
+            </p>
+          </div>
+          <div className="divide-y divide-stone-200 rounded-3xl overflow-hidden bg-white shadow-xs">
+            {quizzes.map((quiz) => {
+              const hasSubmissions = quiz.review_status === "published" && (
+                (quiz.assigned_student_emails || []).length > 0
+              );
+              if (!hasSubmissions) return null;
+              return (
+                <div key={quiz.id} className="p-4 flex items-center justify-between border-b border-stone-100 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
+                      {quiz.quiz_type}
+                    </span>
+                    <span className="font-mono text-xs text-stone-500">
+                      {quiz.question_count} Questions
+                    </span>
+                    <span className="text-stone-400 font-mono text-[11px]">
+                      {quiz.assigned_student_emails?.length ?? 0} assigned
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => openSubmissionDrawer(quiz.id)}
+                      className="px-3 py-1.5 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-1.5 btn-tactile cursor-pointer shadow-sm hover:shadow-md"
+                    >
+                      View Submissions
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {false && (
         <>
       {/* Published Assessments List */}
@@ -1181,6 +1407,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           </div>
         )}
       </div>
+        </>
+      )}
 
       {editingQuiz && (
         <AssessmentEditorModal
@@ -1191,8 +1419,6 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             loadQuizzes();
           }}
         />
-      )}
-        </>
       )}
     </div>
   );

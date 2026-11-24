@@ -81,6 +81,7 @@ export interface PublishedQuiz {
   due_at?: string;
   assigned_student_emails?: string[];
   review_status: "draft" | "published";
+  allow_retakes: boolean;
 }
 
 export interface FacultyAssignedAssessment extends PublishedQuiz {
@@ -128,8 +129,25 @@ export interface GradeSubmission {
   score: number;
   total_questions: number;
   percentage: number;
-  answers: AnswerDetail[];
+  raw_score: number;
+  adjusted_score: number | null;
+  final_score: number;
+  is_verified: boolean;
+  faculty_remarks: string | null;
+  reviewed_at: string | null;
+  reviewed_by: number | null;
+  answers: AnswerDetailWithOverride[];
   created_at?: string;
+}
+
+export interface AnswerDetailWithOverride {
+  question: string;
+  user_answer: string;
+  correct_answer: string;
+  is_correct: boolean;
+  is_overridden: boolean;
+  awarded_points: number;
+  ai_feedback?: string;
 }
 
 export interface AnswerDetail {
