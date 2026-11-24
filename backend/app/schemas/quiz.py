@@ -19,6 +19,7 @@ class QuizRequest(BaseModel):
     file_base64: str | None = None
     file_mime_type: str | None = None
     file_name: str | None = None
+    material_id: int | None = None
     course_code: str | None = None
     class_section: str | None = None
     classroom_id: str | None = None

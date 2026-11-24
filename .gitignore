@@ -9,6 +9,7 @@ venv/
 
 # Database
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
 *.db.bak*

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL } from "@/lib/api";
+import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, type PreparedMaterial } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
 import {
   IconList,
@@ -118,6 +118,12 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Prepared materials (instant)
+  const [preparedMaterials, setPreparedMaterials] = useState<PreparedMaterial[]>([]);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
+  const [preparingMaterial, setPreparingMaterial] = useState(false);
+  const materialInputRef = useRef<HTMLInputElement>(null);
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -155,6 +161,19 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     queryKey: ["classrooms", "teacher"],
     queryFn: fetchClassrooms,
   });
+
+  const loadMaterials = async () => {
+    try {
+      const list = await fetchMaterials();
+      setPreparedMaterials(list);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    loadMaterials();
+  }, []);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingQuiz, setEditingQuiz] = useState<{ id: string; topic: string } | null>(null);
@@ -238,14 +257,67 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handlePreloadMaterial = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      setError("File size exceeds 15MB limit.");
+      if (materialInputRef.current) materialInputRef.current.value = "";
+      return;
+    }
+    setError("");
+    setPreparingMaterial(true);
+    try {
+      const reader = new FileReader();
+      const base64: string = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await prepareMaterial({ filename: file.name, file_base64: base64, file_mime_type: file.type });
+      await loadMaterials();
+      // poll while processing
+      let attempts = 0;
+      const poll = async () => {
+        if (attempts > 30) return;
+        attempts += 1;
+        await loadMaterials();
+        setPreparedMaterials((prev) => {
+          if (prev.some((m) => m.status === "processing")) {
+            window.setTimeout(poll, 2000);
+          }
+          return prev;
+        });
+      };
+      window.setTimeout(poll, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to prepare material.");
+    } finally {
+      setPreparingMaterial(false);
+      if (materialInputRef.current) materialInputRef.current.value = "";
+    }
+  };
+
+  const handleRetryMaterial = async (id: number) => {
+    try {
+      await retryMaterial(id);
+      await loadMaterials();
+      window.setTimeout(async () => {
+        await loadMaterials();
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to retry material.");
+    }
+  };
+
   const handlePublish = async () => {
     // Validation
     if (sourceType === "topic" && !topic.trim()) {
       setError("Please specify an assessment topic or lesson title.");
       return;
     }
-    if ((sourceType === "image" || sourceType === "pdf") && !fileBase64) {
-      setError(`Please upload a valid ${sourceType === "pdf" ? "PDF document" : "image"} first.`);
+    if ((sourceType === "image" || sourceType === "pdf") && !fileBase64 && !selectedMaterialId) {
+      setError(`Please upload a valid ${sourceType === "pdf" ? "PDF document" : "image"} first, or select a prepared material.`);
       return;
     }
     if (sourceType === "text" && !notesText.trim()) {
@@ -314,6 +386,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         file_base64: (sourceType === "image" || sourceType === "pdf") ? (fileBase64 || undefined) : undefined,
         file_mime_type: selectedFile?.type,
         file_name: selectedFile?.name,
+        material_id: selectedMaterialId ?? undefined,
         generation_mode: generationMode,
         course_code: courseCode.trim() || undefined,
         class_section: classSection.trim() || undefined,
@@ -1065,6 +1138,80 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             </div>
           </div>
         )}
+
+        {/* Prepared Materials (Instant) */}
+        <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-xs">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-stone-700">Prepared Materials (Instant)</p>
+              <p className="text-[11px] text-stone-500">Pre-load a PDF once; reuse it instantly without re-uploading.</p>
+            </div>
+            <label className="cursor-pointer rounded-full border border-cvsu-green/40 bg-cvsu-light px-3.5 py-1.5 text-xs font-bold text-cvsu-green hover:bg-cvsu-green hover:text-white transition-colors">
+              {preparingMaterial ? "Preparing..." : "Pre-load PDF"}
+              <input
+                ref={materialInputRef}
+                type="file"
+                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handlePreloadMaterial}
+                className="hidden"
+                disabled={preparingMaterial}
+              />
+            </label>
+          </div>
+
+          {preparedMaterials.length === 0 ? (
+            <p className="text-[11px] text-stone-400">No prepared materials yet.</p>
+          ) : (
+            <div className="space-y-2">
+              <select
+                value={selectedMaterialId ?? ""}
+                onChange={(e) => setSelectedMaterialId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-xs text-[#1C1C1C] focus:outline-none focus:ring-2 focus:ring-cvsu-green/20"
+              >
+                <option value="">None selected</option>
+                {preparedMaterials.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.filename} — {m.status === "processing" ? "Preparing..." : m.status === "ready" ? "Ready" : "Failed"}
+                  </option>
+                ))}
+              </select>
+
+              <ul className="space-y-1.5">
+                {preparedMaterials.map((m) => {
+                  const status = m.status;
+                  return (
+                    <li key={m.id} className="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-[#F7F7F2]/60 px-3 py-2 text-xs">
+                      <span className="truncate font-mono text-[#1C1C1C]">{m.filename}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {status === "processing" && (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Preparing...</span>
+                        )}
+                        {status === "ready" && (
+                          <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2 py-0.5 text-[10px] font-bold text-cvsu-green">Ready ⚡</span>
+                        )}
+                        {status === "failed" && (
+                          <>
+                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Failed</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRetryMaterial(m.id)}
+                              className="rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-[10px] font-bold text-stone-700 hover:bg-stone-100"
+                            >
+                              Retry
+                            </button>
+                          </>
+                        )}
+                        {selectedMaterialId === m.id && (
+                          <span className="text-[10px] font-bold text-cvsu-green">Selected</span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
 
         {/* 2. Assessment Format Selection */}
         <div>

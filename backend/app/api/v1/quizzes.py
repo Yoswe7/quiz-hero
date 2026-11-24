@@ -20,7 +20,13 @@ from app.schemas.quiz import (
 )
 from app.models import User, Classroom, ClassroomMembership, Quiz, QuizSession, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
-from app.services.quiz_service import validate_source_payload, publish_quiz_workflow, resolve_question_count
+from app.services.quiz_service import (
+    validate_source_payload,
+    publish_quiz_workflow,
+    resolve_question_count,
+    resolve_course_material,
+    try_instant_cache,
+)
 from app.services.ai_generator import generate_quiz
 from app.services.ai_grader import grade_open_answer
 from app.crud.crud_quiz import (
@@ -42,6 +48,7 @@ router = APIRouter()
 @router.post("/generate-quiz")
 async def generate_quiz_endpoint(
     request: QuizRequest,
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(5, 60, authenticated=True)),
     _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
@@ -52,7 +59,27 @@ async def generate_quiz_endpoint(
         count = resolve_question_count(request, default=10)
         raw_sections = getattr(request, "sections", None)
         sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
-        
+
+        material = await resolve_course_material(request, current_user.email, db)
+        cached = try_instant_cache(material, request)
+        if cached is not None:
+            return {"quiz_data": cached, "fallback_notice": None, "served_from_cache": True}
+
+        if material is not None:
+            questions, fallback_notice = await generate_quiz(
+                topic=topic_title,
+                question_count=count,
+                quiz_type=request.quiz_type or "Multiple Choice",
+                source_type="text",
+                content_text=material.extracted_text,
+                file_base64=None,
+                file_mime_type=None,
+                file_name=request.file_name,
+                sections=sections_dict,
+                generation_mode="fast",
+            )
+            return {"quiz_data": questions, "fallback_notice": fallback_notice, "served_from_cache": False}
+
         questions, fallback_notice = await generate_quiz(
             topic=topic_title,
             question_count=count,
@@ -65,7 +92,7 @@ async def generate_quiz_endpoint(
             sections=sections_dict,
             generation_mode=request.generation_mode,
         )
-        return {"quiz_data": questions, "fallback_notice": fallback_notice}
+        return {"quiz_data": questions, "fallback_notice": fallback_notice, "served_from_cache": False}
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="AI returned invalid JSON. Please try again.")
     except ValueError as e:
@@ -85,12 +112,14 @@ async def publish_quiz_endpoint(
     validate_source_payload(request)
     try:
         new_quiz, fallback_notice = await publish_quiz_workflow(request, current_user.email, db)
+        served_from_cache = getattr(request, "_served_from_cache", False)
         persisted_quiz = await get_quiz_by_id(db, new_quiz.id)
         if not persisted_quiz:
             raise HTTPException(status_code=500, detail="Assessment was created but could not be loaded for review.")
         return {
             "message": "Assessment draft created for review.",
             "fallback_notice": fallback_notice,
+            "served_from_cache": served_from_cache,
                 "quiz": {
                     "id": persisted_quiz.id,
                     "topic": persisted_quiz.topic,

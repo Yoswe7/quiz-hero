@@ -406,3 +406,44 @@ export async function sendChatMessage(
     signal?.removeEventListener("abort", abortRequest);
   }
 }
+
+export interface PreparedMaterial {
+  id: number;
+  filename: string;
+  created_by_email: string;
+  file_hash: string;
+  content_hash: string;
+  extracted_text: string;
+  pregenerated_questions_json?: any[] | null;
+  status: string;
+  error_message?: string | null;
+  created_at: string;
+}
+
+export async function prepareMaterial(payload: {
+  filename: string;
+  file_base64: string;
+  file_mime_type?: string;
+}): Promise<PreparedMaterial> {
+  return fetchWithAuth(`${API_URL}/materials/prepare`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchMaterials(): Promise<PreparedMaterial[]> {
+  const data = await fetchWithAuth(`${API_URL}/materials`);
+  return data?.materials ?? [];
+}
+
+export async function retryMaterial(materialId: number): Promise<PreparedMaterial> {
+  return fetchWithAuth(`${API_URL}/materials/${materialId}/retry`, {
+    method: "POST",
+  });
+}
+
+export async function deleteMaterial(materialId: number): Promise<{ message: string; material_id: number }> {
+  return fetchWithAuth(`${API_URL}/materials/${materialId}`, {
+    method: "DELETE",
+  });
+}

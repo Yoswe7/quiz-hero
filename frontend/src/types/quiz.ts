@@ -52,6 +52,7 @@ export interface QuizPublishPayload {
   assigned_student_emails?: string[];
   time_limit_minutes?: number | null;
   generation_mode?: "fast" | "complex";
+  material_id?: number;
 }
 
 export interface Question {
