@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PublishedQuiz, QuizType } from "@/types/quiz";
 import { fetchQuizzes, joinClassroom } from "@/lib/api";
+import { formatManilaDateTime } from "@/lib/dateUtils";
 import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useQuery } from "@tanstack/react-query";
@@ -168,6 +169,13 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                   <span className="text-stone-500 font-medium font-mono text-xs">
                     {quiz.question_count} questions
                   </span>
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${
+                    quiz.time_limit_minutes
+                      ? "border-stone-300 bg-[#F7F7F2] text-stone-600"
+                      : "border-dashed border-stone-200 text-stone-400"
+                  }`}>
+                    {quiz.time_limit_minutes ? `${quiz.time_limit_minutes} min limit` : "Untimed"}
+                  </span>
                   {quiz.course_code && (
                     <span className="text-stone-500 font-medium">{quiz.course_code}</span>
                   )}
@@ -176,7 +184,7 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
                   )}
                   {quiz.due_at && (
                     <span className="text-amber-700 font-semibold">
-                      Due {new Date(quiz.due_at).toLocaleString()}
+                      Due {formatManilaDateTime(quiz.due_at)}
                     </span>
                   )}
 

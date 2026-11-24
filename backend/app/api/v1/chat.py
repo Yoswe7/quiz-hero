@@ -6,7 +6,7 @@ from app.schemas.ai import ChatRequest
 from app.models import User
 from app.api.dependencies import get_optional_current_user
 from app.core.config import settings
-from app.core.rate_limit import gemini_concurrency_limit, rate_limit
+from app.core.rate_limit import ai_concurrency_limit, rate_limit
 from app.services.llm_router import generate_chat
 
 router = APIRouter()
@@ -59,11 +59,10 @@ Tone & Guidelines:
         recent_messages = request.messages[-10:] if len(request.messages) > 10 else request.messages
         router_messages = [{"role": msg.role, "content": msg.content} for msg in recent_messages]
 
-        try:
-            reply = await asyncio.wait_for(
-                generate_chat(router_messages, system_prompt=system_instruction, max_output_tokens=800),
-                timeout=30,
-            )
+        reply = await asyncio.wait_for(
+            generate_chat(router_messages, system_prompt=system_instruction, max_output_tokens=800),
+            timeout=30,
+        )
 
         return {"reply": reply}
 

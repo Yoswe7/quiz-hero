@@ -1,7 +1,9 @@
-﻿import secrets
+import secrets
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from google import genai
+
+GROQ_MAX_IMAGE_BYTES = 14 * 1024 * 1024
 
 class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
@@ -25,6 +27,7 @@ class Settings(BaseSettings):
     FACULTY_ACCESS_CODE: str = "CVSU_FACULTY_2026"
     REDIS_URL: str = ""
     RATE_LIMIT_ENABLED: bool = True
+    AI_MAX_CONCURRENT_PER_USER: int = 2
     GEMINI_MAX_CONCURRENT_PER_USER: int = 2
     GEMINI_GENERATION_MODEL: str = "gemini-3.8-flash"
     GEMINI_GRADING_MODEL: str = "gemini-3.5-flash-lite"

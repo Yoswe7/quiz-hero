@@ -166,7 +166,13 @@ async def update_quiz(
     db: AsyncSession,
     quiz_id: str,
     topic: str,
-    questions_data: list[dict]
+    questions_data: list[dict],
+    available_from: datetime | None = None,
+    due_at: datetime | None = None,
+    update_available_from: bool = False,
+    update_due_at: bool = False,
+    time_limit_minutes: int | None = None,
+    update_time_limit_minutes: bool = False,
 ) -> Quiz | None:
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
@@ -174,6 +180,12 @@ async def update_quiz(
 
     quiz.topic = topic.strip()
     quiz.question_count = len(questions_data)
+    if update_available_from:
+        quiz.available_from = available_from
+    if update_due_at:
+        quiz.due_at = due_at
+    if update_time_limit_minutes:
+        quiz.time_limit_minutes = time_limit_minutes
 
     # 1. Find existing questions for this quiz to delete their options
     q_stmt = select(Question.id).where(Question.quiz_id == quiz_id)

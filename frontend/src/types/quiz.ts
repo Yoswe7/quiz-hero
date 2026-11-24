@@ -50,6 +50,7 @@ export interface QuizPublishPayload {
   available_from?: string;
   due_at?: string;
   assigned_student_emails?: string[];
+  time_limit_minutes?: number | null;
 }
 
 export interface Question {
@@ -82,6 +83,7 @@ export interface PublishedQuiz {
   assigned_student_emails?: string[];
   review_status: "draft" | "published";
   allow_retakes: boolean;
+  time_limit_minutes?: number | null;
 }
 
 export interface FacultyAssignedAssessment extends PublishedQuiz {
@@ -116,7 +118,9 @@ export interface QuizDetail {
   created_at?: string;
   course_code?: string;
   class_section?: string;
+  available_from?: string;
   due_at?: string;
+  time_limit_minutes?: number | null;
   questions: StudentQuestion[];
 }
 

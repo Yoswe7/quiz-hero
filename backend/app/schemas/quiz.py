@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
-from typing import Any
+from typing import Any, Optional
 
 class QuizSection(BaseModel):
     quiz_type: str
@@ -23,6 +23,7 @@ class QuizRequest(BaseModel):
     available_from: datetime | None = None
     due_at: datetime | None = None
     assigned_student_emails: list[str] = Field(default_factory=list)
+    time_limit_minutes: int | None = Field(default=None, ge=1)
 
     @field_validator("assigned_student_emails")
     @classmethod
@@ -92,6 +93,7 @@ class QuizSummaryResponse(BaseModel):
     course_code: str | None = None
     class_section: str | None = None
     due_at: datetime | None = None
+    time_limit_minutes: int | None = None
 
 class StudentQuestionRead(BaseModel):
     """
@@ -115,6 +117,7 @@ class StudentQuizDetailResponse(BaseModel):
     class_section: str | None = None
     available_from: datetime | None = None
     due_at: datetime | None = None
+    time_limit_minutes: int | None = None
     questions: list[StudentQuestionRead]
 
 class QuestionUpdate(BaseModel):
@@ -128,3 +131,6 @@ class QuestionUpdate(BaseModel):
 class QuizUpdateRequest(BaseModel):
     topic: str
     questions: list[QuestionUpdate]
+    available_from: Optional[datetime] = None
+    due_at: Optional[datetime] = None
+    time_limit_minutes: Optional[int] = Field(default=None, ge=1)

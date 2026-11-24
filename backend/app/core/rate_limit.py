@@ -210,3 +210,7 @@ def ai_concurrency_limit(
                 await _release_ai_memory(identity)
 
     return dependency
+
+
+gemini_concurrency_limit = ai_concurrency_limit
+

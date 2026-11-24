@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
 import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz, API_URL } from "@/lib/api";
+import { formatManilaDateTime } from "@/lib/dateUtils";
 import {
   IconList,
   IconToggle,
@@ -104,6 +105,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [tfCount, setTfCount] = useState(0);
   const [idCount, setIdCount] = useState(0);
   const [openCount, setOpenCount] = useState(10);
+  const [allowRetakes, setAllowRetakes] = useState(false);
+  const [maxAttempts, setMaxAttempts] = useState("0");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
 
   const totalMixedCount = mcCount + tfCount + idCount + openCount;
   
@@ -290,6 +294,14 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         effectiveCount = totalMixedCount;
       }
 
+      if (availableFrom && dueAt) {
+        if (new Date(availableFrom).getTime() >= new Date(dueAt).getTime()) {
+          setError("Available From must be earlier than the Deadline.");
+          setIsLoading(false);
+          return;
+        }
+      }
+
       const payload = {
         topic: effectiveTopic,
         question_count: effectiveCount,
@@ -307,6 +319,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         available_from: availableFrom ? new Date(availableFrom).toISOString() : undefined,
         due_at: dueAt ? new Date(dueAt).toISOString() : undefined,
         assigned_student_emails: assignedEmails,
+        time_limit_minutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
       };
 
       const result = await publishQuiz(payload);
@@ -322,6 +335,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       // Reset inputs
       setTopic("");
       setNotesText("");
+      setTimeLimitMinutes("");
       handleClearFile();
       loadQuizzes();
     } catch (err) {
@@ -494,6 +508,11 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                     <span className="font-mono text-xs text-stone-500">
                       {quiz.assigned_student_emails?.length ?? 0} assigned
                     </span>
+                    {quiz.due_at && (
+                      <span className="font-mono text-xs font-semibold text-amber-700">
+                        Due: {formatManilaDateTime(quiz.due_at)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
@@ -1207,6 +1226,20 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           </div>
         )}
 
+        <div className="p-5 bg-[#F7F7F2] border border-stone-200 rounded-2xl space-y-3">
+          <label className="text-xs font-bold text-stone-700 block uppercase tracking-wider">
+            Time Limit (Minutes)
+          </label>
+          <input
+            type="number"
+            min={1}
+            value={timeLimitMinutes}
+            onChange={(e) => setTimeLimitMinutes(e.target.value)}
+            placeholder="No time limit"
+            className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-[#1C1C1C] outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
+          />
+        </div>
+
         <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-amber-950">4. Assignment access</p>
@@ -1216,18 +1249,32 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             <input aria-label="Course code" value={courseCode} onChange={(e) => setCourseCode(e.target.value)} placeholder="Course code (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
             <input aria-label="Class section" value={classSection} onChange={(e) => setClassSection(e.target.value)} placeholder="Section (optional)" className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <select aria-label="Assign to class" value={classroomId} onChange={(e) => setClassroomId(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20">
-              <option value="">Individual students</option>
-              {classrooms.map((classroom) => (
-                <option key={classroom.id} value={classroom.id}>
-                  {classroom.name} ({classroom.invite_code})
-                </option>
-              ))}
-            </select>
-            <input aria-label="Available from" type="datetime-local" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
-            <input aria-label="Due date" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+          <div className="grid gap-3 sm:grid-cols-3 items-end">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-amber-950 block">Class / Cohort</label>
+              <select aria-label="Assign to class" value={classroomId} onChange={(e) => setClassroomId(e.target.value)} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20">
+                <option value="">Individual students</option>
+                {classrooms.map((classroom) => (
+                  <option key={classroom.id} value={classroom.id}>
+                    {classroom.name} ({classroom.invite_code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-amber-950 block">Available From</label>
+              <input aria-label="Available from" type="datetime-local" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-amber-950 block">Deadline / Due Date</label>
+              <input aria-label="Due date" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
+            </div>
           </div>
+          {availableFrom && dueAt && new Date(availableFrom).getTime() >= new Date(dueAt).getTime() && (
+            <p className="text-xs font-semibold text-red-600">
+              ⚠️ Available From must be earlier than the Deadline.
+            </p>
+          )}
           {!classroomId && (
             <textarea aria-label="Assigned student emails" value={assignedStudentEmails} onChange={(e) => setAssignedStudentEmails(e.target.value)} placeholder="Optional individual student emails, separated by commas or spaces" rows={3} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cvsu-green/20" />
           )}

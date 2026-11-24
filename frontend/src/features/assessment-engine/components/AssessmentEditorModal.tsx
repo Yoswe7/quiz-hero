@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Question, QuizType } from "@/types/quiz";
-import { fetchQuizAnswers, updateQuiz } from "@/lib/api";
+import { fetchQuizAnswers, fetchQuizDetail, updateQuiz } from "@/lib/api";
+import { toDateTimeLocalInput } from "@/lib/dateUtils";
 import { IconTrash, IconPlus, IconCheckCircle, IconEdit } from "@/components/icons";
 
 interface Props {
@@ -21,6 +22,9 @@ export default function AssessmentEditorModal({
 }: Props) {
   const queryClient = useQueryClient();
   const [topic, setTopic] = useState(initialTopic);
+  const [availableFrom, setAvailableFrom] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -34,7 +38,10 @@ export default function AssessmentEditorModal({
       setIsLoading(true);
       setError("");
       try {
-        const data = await fetchQuizAnswers(quizId);
+        const [data, detail] = await Promise.all([
+          fetchQuizAnswers(quizId),
+          fetchQuizDetail(quizId).catch(() => null),
+        ]);
         if (mounted) {
           if (data.topic) setTopic(data.topic);
           setQuestions(
@@ -44,6 +51,15 @@ export default function AssessmentEditorModal({
               quiz_type: q.quiz_type || "Multiple Choice",
             }))
           );
+          if (detail?.time_limit_minutes !== undefined) {
+            setTimeLimitMinutes(detail.time_limit_minutes === null ? "" : String(detail.time_limit_minutes));
+          }
+          if (detail?.available_from) {
+            setAvailableFrom(toDateTimeLocalInput(detail.available_from));
+          }
+          if (detail?.due_at) {
+            setDueAt(toDateTimeLocalInput(detail.due_at));
+          }
         }
       } catch (err) {
         if (mounted) {
@@ -198,6 +214,13 @@ export default function AssessmentEditorModal({
       }
     }
 
+    if (availableFrom && dueAt) {
+      if (new Date(availableFrom).getTime() >= new Date(dueAt).getTime()) {
+        setError("Available From must be earlier than the Deadline.");
+        return;
+      }
+    }
+
     setIsSaving(true);
     setError("");
 
@@ -205,6 +228,9 @@ export default function AssessmentEditorModal({
       await updateQuiz(quizId, {
         topic: topic.trim(),
         questions,
+        available_from: availableFrom ? new Date(availableFrom).toISOString() : null,
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
+        time_limit_minutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
       });
 
       // Instantly invalidate TanStack Query caches so previews and student views reflect changes immediately
@@ -299,6 +325,64 @@ export default function AssessmentEditorModal({
                   placeholder="e.g. Philippine History, Object Oriented Programming"
                   className="w-full px-4 py-2.5 text-sm font-semibold text-[#1C1C1C] bg-[#F7F7F2] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cvsu-green focus:bg-white transition-all"
                 />
+              </div>
+
+              {/* Time Limit */}
+              <div className="p-5 bg-white rounded-2xl border border-stone-200 shadow-xs space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-cvsu-dark block">
+                  Time Limit (Minutes)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={timeLimitMinutes}
+                  onChange={(e) => setTimeLimitMinutes(e.target.value)}
+                  placeholder="No time limit"
+                  className="w-full px-4 py-2.5 text-sm font-semibold text-[#1C1C1C] bg-[#F7F7F2] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cvsu-green focus:bg-white transition-all"
+                />
+              </div>
+
+              {/* Assessment Schedule & Deadlines */}
+              <div className="p-5 bg-white rounded-2xl border border-stone-200 shadow-xs space-y-3">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-cvsu-dark">
+                    Assessment Schedule & Deadlines
+                  </h3>
+                  <p className="text-xs text-stone-500">
+                    Set the assessment availability window and submission deadline.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-700 block">
+                      Available From
+                    </label>
+                    <input
+                      aria-label="Available From"
+                      type="datetime-local"
+                      value={availableFrom}
+                      onChange={(e) => setAvailableFrom(e.target.value)}
+                      className="w-full px-4 py-2 text-xs font-semibold text-[#1C1C1C] bg-[#F7F7F2] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cvsu-green focus:bg-white transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-700 block">
+                      Deadline / Due Date
+                    </label>
+                    <input
+                      aria-label="Deadline / Due Date"
+                      type="datetime-local"
+                      value={dueAt}
+                      onChange={(e) => setDueAt(e.target.value)}
+                      className="w-full px-4 py-2 text-xs font-semibold text-[#1C1C1C] bg-[#F7F7F2] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cvsu-green focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+                {availableFrom && dueAt && new Date(availableFrom).getTime() >= new Date(dueAt).getTime() && (
+                  <p className="text-xs font-semibold text-red-600">
+                    ⚠️ Available From must be earlier than the Deadline.
+                  </p>
+                )}
               </div>
 
               {/* Questions Section */}

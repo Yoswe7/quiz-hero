@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { StudentQuestion, QuizType } from "@/types/quiz";
 import { IconArrowRight } from "@/components/icons";
+import { startQuizSession } from "@/lib/api";
 import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
 
 export interface StudentQuizAnswerInput {
@@ -16,6 +17,7 @@ interface Props {
   questions: StudentQuestion[];
   quizType: QuizType;
   onComplete: (answers: StudentQuizAnswerInput[]) => void;
+  timeLimitMinutes?: number | null;
 }
 
 interface QuizDraft {
@@ -24,7 +26,7 @@ interface QuizDraft {
   recordedAnswers: StudentQuizAnswerInput[];
 }
 
-export default function QuizPlayer({ quizId, studentEmail, questions, quizType, onComplete }: Props) {
+export default function QuizPlayer({ quizId, studentEmail, questions, quizType, onComplete, timeLimitMinutes = null }: Props) {
   const draftKey = `quiz-hero:draft:quiz:${studentEmail.toLowerCase()}:${quizId}`;
   const [draft] = useState<QuizDraft | null>(() => readDraft<QuizDraft>(draftKey));
   const [currentIndex, setCurrentIndex] = useState(
@@ -36,12 +38,27 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
     draft?.recordedAnswers ?? []
   );
   const [showRestoredDraft, setShowRestoredDraft] = useState(Boolean(draft));
+  const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
+  const serverOffsetRef = useRef(0);
+  const hasAutoSubmittedRef = useRef(false);
   const hasCompletedRef = useRef(false);
 
   const question = questions[currentIndex];
   const itemQuizType = question?.quiz_type || quizType;
   const isTextInput = itemQuizType === "Identification" || itemQuizType === "Open Ended";
   const progressPercent = ((currentIndex + 1) / questions.length) * 100;
+  const isTimedOut = remainingMs !== null && remainingMs <= 0;
+  const isAnswerLocked = isSubmitting || Boolean(timeLimitMinutes && isTimedOut);
+  const formatTimer = (ms: number) => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return hours > 0
+      ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+      : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  };
 
   useEffect(() => {
     if (!question || hasCompletedRef.current) return;
@@ -51,13 +68,48 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
     return () => window.clearTimeout(timeout);
   }, [currentIndex, draftKey, question, recordedAnswers, textInput]);
 
+  useEffect(() => {
+    if (!timeLimitMinutes) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const session = await startQuizSession(quizId);
+        const expiresAt = session.expires_at ? new Date(session.expires_at).getTime() : null;
+        if (!session.server_now || expiresAt === null) return;
+        serverOffsetRef.current = new Date(session.server_now).getTime() - Date.now();
+        if (cancelled) return;
+        setExpiresAtMs(expiresAt);
+      } catch {
+        // Continue untimed if the session start fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId, timeLimitMinutes]);
+
+  useEffect(() => {
+    if (expiresAtMs === null || hasCompletedRef.current) return;
+    const interval = window.setInterval(() => {
+      if (hasCompletedRef.current) return;
+      const remaining = expiresAtMs - (Date.now() + serverOffsetRef.current);
+      setRemainingMs(remaining);
+      if (remaining <= 0 && !hasAutoSubmittedRef.current) {
+        hasAutoSubmittedRef.current = true;
+        clearDraft(draftKey);
+        onComplete(recordedAnswers);
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [expiresAtMs, draftKey, onComplete, recordedAnswers]);
+
   const advanceQuestion = useCallback(() => {
     setTextInput("");
   }, []);
 
   const processAnswer = useCallback(
     (userAnswer: string) => {
-      if (isSubmitting || hasCompletedRef.current) return;
+      if (isAnswerLocked || hasCompletedRef.current) return;
       const cleanAnswer = userAnswer.trim();
       if (!cleanAnswer) return;
 
@@ -81,12 +133,12 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
         }
       }
     },
-    [isSubmitting, currentIndex, question, recordedAnswers, questions.length, onComplete, advanceQuestion]
+    [isAnswerLocked, currentIndex, question, recordedAnswers, questions.length, onComplete, advanceQuestion]
   );
 
   // Keyboard shortcut listener for Multiple Choice / True or False (Keys 1-4 or A-D)
   useEffect(() => {
-    if (isTextInput || isSubmitting) return;
+    if (isTextInput || isAnswerLocked) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -115,7 +167,7 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isTextInput, isSubmitting, question.options, processAnswer]);
+  }, [isTextInput, isAnswerLocked, question.options, processAnswer]);
 
   return (
     <div className="view-transition space-y-9">
@@ -127,6 +179,20 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
           </button>
         </div>
       )}
+      {/* Time Limit Timer */}
+      {timeLimitMinutes && expiresAtMs !== null && remainingMs !== null && (
+        <div className={`rounded-2xl border px-4 py-3 font-mono font-bold text-sm transition-colors ${
+          isTimedOut
+            ? "border-red-300 bg-red-50 text-red-700"
+            : remainingMs <= 60000
+            ? "border-amber-300 bg-amber-50 text-amber-800"
+            : "border-stone-200 bg-white text-stone-700"
+        }`}>
+          <span className="text-xs font-bold text-stone-500">Quiz Timer · {timeLimitMinutes} min limit</span>
+          <div className="text-xl">{formatTimer(remainingMs)}</div>
+        </div>
+      )}
+
       {/* Header & Linear Progress */}
       <div className="space-y-3.5 pb-5 border-b border-stone-200">
         <div className="flex justify-between items-center text-sm font-semibold text-stone-600">
@@ -173,7 +239,7 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
                 key={idx}
                 type="button"
                 onClick={() => processAnswer(option)}
-                disabled={isSubmitting}
+                disabled={isAnswerLocked}
                 className="w-full text-left p-5 rounded-xl border border-stone-200 bg-white hover:border-cvsu-green hover:bg-cvsu-light/50 text-[#1C1C1C] hover:text-cvsu-green transition-all duration-150 text-sm sm:text-base flex items-center justify-between gap-4 shadow-xs hover:shadow-md group btn-tactile disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
               >
                 <div className="flex items-center gap-3.5">
@@ -200,7 +266,7 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
                 className="w-full p-5 bg-white border border-stone-300 rounded-2xl text-sm text-[#1C1C1C] placeholder:text-stone-400 focus:outline-none focus:ring-4 focus:ring-cvsu-green/10 focus:border-cvsu-green min-h-[150px] resize-y shadow-xs leading-relaxed"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isAnswerLocked}
                 autoFocus
               />
             ) : (
@@ -210,7 +276,7 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
                 className="w-full px-5 py-4 bg-white border border-stone-300 rounded-2xl text-sm text-[#1C1C1C] placeholder:text-stone-400 focus:outline-none focus:ring-4 focus:ring-cvsu-green/10 focus:border-cvsu-green shadow-xs"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                disabled={isSubmitting}
+                disabled={isAnswerLocked}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && textInput.trim()) processAnswer(textInput.trim());

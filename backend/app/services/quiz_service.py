@@ -1,3 +1,4 @@
+import inspect
 import uuid
 from typing import Optional
 
@@ -125,7 +126,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
     sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
     count = resolve_question_count(request)
 
-    questions_data = await generate_quiz(
+    gen_res = generate_quiz(
         topic=topic_title,
         question_count=count,
         quiz_type=request.quiz_type,
@@ -136,6 +137,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         file_name=request.file_name,
         sections=sections_dict,
     )
+    questions_data = await gen_res if inspect.isawaitable(gen_res) else gen_res
     
     quiz_id = str(uuid.uuid4())[:8]
     
@@ -176,6 +178,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         assigned_student_emails=request.assigned_student_emails,
         is_assigned=True,
         review_status="draft",
+        time_limit_minutes=request.time_limit_minutes,
         questions=question_objects 
     )
     db.add(new_quiz)

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-from typing import Optional
-from sqlalchemy import Column, DateTime, JSON, func, Integer
+from typing import Any, Optional
+from sqlalchemy import Boolean, Column, DateTime, JSON, func, Integer
 from sqlmodel import SQLModel, Field
 
 class Submission(SQLModel, table=True):
@@ -13,6 +13,14 @@ class Submission(SQLModel, table=True):
     score: float
     total_questions: int
     percentage: float
+    started_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    timed_out: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=func.false()),
+    )
     raw_score: float = Field(default=0.0, sa_column=Column("raw_score", nullable=False))
     adjusted_score: float | None = Field(default=None, sa_column=Column("adjusted_score", nullable=True))
     is_verified: bool = Field(default=False, sa_column=Column("is_verified", nullable=False, server_default="false"))

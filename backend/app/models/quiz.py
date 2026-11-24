@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any
+from typing import Optional
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import Boolean, Column, DateTime, JSON, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, func
 
 class Option(SQLModel, table=True):
     __tablename__ = "options"
@@ -46,6 +46,7 @@ class Quiz(SQLModel, table=True):
     )
     is_assigned: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
     allow_retakes: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
+    time_limit_minutes: Optional[int] = Field(default=None, sa_column=Column(Integer, nullable=True))
     review_status: str = Field(default="draft", index=True)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), server_default=func.now())
@@ -54,4 +55,17 @@ class Quiz(SQLModel, table=True):
     questions: list[Question] = Relationship(
         back_populates="quiz",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+
+
+class QuizSession(SQLModel, table=True):
+    __tablename__ = "quiz_sessions"
+    id: int | None = Field(default=None, primary_key=True)
+    quiz_id: str = Field(foreign_key="quizzes.id", index=True)
+    student_email: str = Field(index=True)
+    started_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    is_completed: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=func.false()),
     )

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.schemas.quiz import QuizSubmissionRequest
-from app.models import ReviewItem, Submission, User
+from app.models import QuizSession, ReviewItem, Submission, User
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
 from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission
 from app.crud.crud_quiz import get_quiz_by_id, quiz_is_visible_to_student, get_student_class_ids
@@ -50,6 +50,24 @@ async def submit_quiz(
         class_ids = await get_student_class_ids(db, current_user.email)
         if not quiz_is_visible_to_student(official_quiz, current_user.email, class_ids):
             raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
+
+    session = (
+        await db.execute(
+            select(QuizSession)
+            .where(
+                QuizSession.quiz_id == official_quiz.id,
+                QuizSession.student_email == current_user.email,
+                QuizSession.is_completed.is_(False),
+            )
+            .order_by(QuizSession.id.desc())
+        )
+    ).scalar_one_or_none()
+    timed_out = False
+    if official_quiz.time_limit_minutes is not None and session is not None:
+        submission_started_at = session.started_at or datetime.now(timezone.utc)
+        if session.expires_at is not None and datetime.now(timezone.utc) > session.expires_at + timedelta(seconds=15):
+            timed_out = True
+        session.is_completed = True
 
     official_questions = official_quiz.questions or []
     total_q = len(official_questions)
@@ -117,6 +135,8 @@ async def submit_quiz(
         score=calculated_score,
         total_questions=total_q,
         percentage=percentage,
+        started_at=session.started_at if session else None,
+        timed_out=timed_out,
         answers=verified_answers
     )
     

@@ -6,6 +6,10 @@ from app.services.ai_generator import generate_quiz
 from app.schemas.ai import GeneratedQuiz
 
 
+def run(coro):
+    return asyncio.run(coro)
+
+
 def mc(i, sec=None):
     d = {
         "question": f"Q{i} about the topic?",
@@ -45,7 +49,7 @@ def test_overshoot():
 
     ag.generate_structured = fake
     try:
-        qs = generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice")
+        qs = run(generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice"))
         assert len(qs) == 40, len(qs)
         assert all("question_number" not in q for q in qs)
         print(f"overshoot: OK len={len(qs)} calls={calls['n']}")
@@ -67,7 +71,7 @@ def test_undershoot():
 
     ag.generate_structured = fake
     try:
-        qs = generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice")
+        qs = run(generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice"))
         assert len(qs) == 40, len(qs)
         assert calls["n"] == 2, calls
         assert all("question_number" not in q for q in qs)
@@ -90,7 +94,7 @@ def test_undershoot_unrecoverable():
     ag.generate_structured = fake
     try:
         try:
-            generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice")
+            run(generate_quiz(topic="t", question_count=40, quiz_type="Multiple Choice"))
             print("undershoot-stuck: ERROR expected failure")
         except ValueError as e:
             print(f"undershoot-stuck: OK -> {e}")
@@ -124,7 +128,7 @@ def test_mixed_undershoot():
         {"quiz_type": "True or False", "question_count": 10},
     ]
     try:
-        qs = generate_quiz(topic="t", question_count=20, quiz_type="Mixed Assessment", sections=sections)
+        qs = run(generate_quiz(topic="t", question_count=20, quiz_type="Mixed Assessment", sections=sections))
         assert len(qs) == 20, len(qs)
         assert calls["n"] == 2, calls
         assert sum(1 for q in qs if q["quiz_type"] == "True or False") == 10

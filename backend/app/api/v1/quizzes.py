@@ -2,6 +2,7 @@ import json
 import secrets
 import string
 import uuid
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -17,7 +18,7 @@ from app.schemas.quiz import (
     JoinClassroomRequest,
     ClassroomResponse,
 )
-from app.models import User, Classroom, ClassroomMembership, Quiz, Submission
+from app.models import User, Classroom, ClassroomMembership, Quiz, QuizSession, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
 from app.services.quiz_service import validate_source_payload, publish_quiz_workflow, resolve_question_count
 from app.services.ai_generator import generate_quiz
@@ -88,12 +89,14 @@ async def publish_quiz_endpoint(
             raise HTTPException(status_code=500, detail="Assessment was created but could not be loaded for review.")
         return {
             "message": "Assessment draft created for review.",
-            "quiz": {
-                "id": persisted_quiz.id,
-                "topic": persisted_quiz.topic,
-                "quiz_type": persisted_quiz.quiz_type,
-                "question_count": persisted_quiz.question_count,
-                "review_status": persisted_quiz.review_status,
+                "quiz": {
+                    "id": persisted_quiz.id,
+                    "topic": persisted_quiz.topic,
+                    "quiz_type": persisted_quiz.quiz_type,
+                    "question_count": persisted_quiz.question_count,
+                    "review_status": persisted_quiz.review_status,
+                    "time_limit_minutes": persisted_quiz.time_limit_minutes,
+
                 "questions": [
                     {
                         "id": question.id,
@@ -152,6 +155,7 @@ async def list_quizzes_endpoint(
                 "due_at": q.due_at,
                 "assigned_student_emails": q.assigned_student_emails or [],
                 "review_status": q.review_status,
+                "time_limit_minutes": q.time_limit_minutes,
             }
             for q in quizzes
         ]
@@ -341,8 +345,69 @@ async def get_quiz_endpoint(
         class_section=quiz.class_section,
         available_from=quiz.available_from,
         due_at=quiz.due_at,
+        time_limit_minutes=quiz.time_limit_minutes,
         questions=student_questions,
     )
+
+
+@router.post("/quizzes/{quiz_id}/start")
+async def start_quiz_session_endpoint(
+    quiz_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_student),
+):
+    """Student-facing: start/reuse a time-bound quiz session."""
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if quiz.review_status != "published":
+        raise HTTPException(status_code=403, detail="This assessment is still under faculty review.")
+    class_ids = await get_student_class_ids(db, current_user.email)
+    if not quiz_is_visible_to_student(quiz, current_user.email, class_ids):
+        raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
+
+    existing = (await db.execute(
+        select(Submission).where(
+            Submission.quiz_id == quiz.id,
+            Submission.student_email == current_user.email,
+        )
+    )).scalar_one_or_none()
+    if existing and not quiz.allow_retakes:
+        raise HTTPException(status_code=403, detail="Retakes are not allowed for this assessment.")
+
+    now = datetime.now(timezone.utc)
+    if quiz.time_limit_minutes is None:
+        return {
+            "time_limit_minutes": None,
+            "expires_at": None,
+            "server_now": now.isoformat(),
+        }
+
+    session = (await db.execute(
+        select(QuizSession).where(
+            QuizSession.quiz_id == quiz.id,
+            QuizSession.student_email == current_user.email,
+            QuizSession.is_completed.is_(False),
+        ).order_by(QuizSession.id.desc())
+    )).scalar_one_or_none()
+    if session is None:
+        session = QuizSession(
+            quiz_id=quiz.id,
+            student_email=current_user.email,
+            started_at=now,
+            expires_at=now + timedelta(minutes=quiz.time_limit_minutes),
+            is_completed=False,
+        )
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+    return {
+        "session_id": session.id,
+        "time_limit_minutes": quiz.time_limit_minutes,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+        "server_now": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/quizzes/{quiz_id}/answers")
@@ -400,11 +465,41 @@ async def update_quiz_endpoint(
     if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
         raise HTTPException(status_code=403, detail="You can only edit your own assessments.")
 
+    def normalize_dt(dt: datetime | None) -> datetime | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    update_available_from = "available_from" in request.model_fields_set
+    update_due_at = "due_at" in request.model_fields_set
+
+    norm_available_from = normalize_dt(request.available_from) if update_available_from else normalize_dt(quiz.available_from)
+    norm_due_at = normalize_dt(request.due_at) if update_due_at else normalize_dt(quiz.due_at)
+
+    if norm_available_from is not None and norm_due_at is not None:
+        if norm_available_from >= norm_due_at:
+            raise HTTPException(
+                status_code=422,
+                detail="Available From must be earlier than the Deadline.",
+            )
+
+    if request.time_limit_minutes is not None and request.time_limit_minutes < 1:
+        raise HTTPException(status_code=422, detail="time_limit_minutes must be at least 1 when provided.")
+    update_time_limit_minutes = "time_limit_minutes" in request.model_fields_set
+
     updated = await update_quiz(
         db=db,
         quiz_id=quiz_id,
         topic=request.topic,
-        questions_data=[q.model_dump() for q in request.questions]
+        questions_data=[q.model_dump() for q in request.questions],
+        available_from=norm_available_from if update_available_from else quiz.available_from,
+        due_at=norm_due_at if update_due_at else quiz.due_at,
+        update_available_from=update_available_from,
+        update_due_at=update_due_at,
+        time_limit_minutes=request.time_limit_minutes if update_time_limit_minutes else None,
+        update_time_limit_minutes=update_time_limit_minutes,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Assessment not found")

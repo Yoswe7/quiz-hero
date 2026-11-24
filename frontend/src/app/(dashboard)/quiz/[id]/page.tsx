@@ -114,6 +114,7 @@ export default function QuizPage() {
           questions={quizDetail.questions}
           quizType={quizDetail.quiz_type}
           onComplete={handleQuizComplete}
+          timeLimitMinutes={quizDetail.time_limit_minutes ?? null}
         />
       ) : (
         <ResultsScreen

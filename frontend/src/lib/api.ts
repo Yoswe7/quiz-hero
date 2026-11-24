@@ -115,7 +115,7 @@ export async function fetchCurrentUser(): Promise<CvSUUser> {
 
 export async function publishQuiz(
   payload: QuizPublishPayload
-): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; questions: Question[] } }> {
+): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; time_limit_minutes?: number | null; questions: Question[] } }> {
   return fetchWithAuth(`${API_URL}/publish-quiz`, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -180,12 +180,30 @@ export async function fetchQuizAnswers(
 
 export async function updateQuiz(
   quizId: string,
-  payload: { topic: string; questions: Question[] }
-): Promise<{ message: string; quiz_id: string }> {
+  payload: {
+    topic: string;
+    questions: Question[];
+    available_from?: string | null;
+    due_at?: string | null;
+    allow_retakes?: boolean;
+    max_attempts?: number;
+    time_limit_minutes?: number | null;
+  }
+): Promise<{ message: string; quiz_id: string; allow_retakes?: boolean; max_attempts?: number; time_limit_minutes?: number | null }> {
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+}
+
+export async function startQuizSession(quizId: string): Promise<{
+  session_id?: number;
+  time_limit_minutes?: number | null;
+  started_at?: string | null;
+  expires_at?: string | null;
+  server_now?: string;
+}> {
+  return fetchWithAuth(`${API_URL}/quizzes/${quizId}/start`, { method: "POST" });
 }
 
 export async function deleteQuiz(quizId: string): Promise<void> {
