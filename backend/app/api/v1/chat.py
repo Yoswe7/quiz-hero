@@ -1,13 +1,12 @@
 import asyncio
 
 from fastapi import APIRouter, HTTPException, Depends
-import google.generativeai as genai
 
 from app.schemas.ai import ChatRequest
 from app.models import User
 from app.api.dependencies import get_optional_current_user
-from app.core.config import settings
-from app.core.rate_limit import gemini_concurrency_limit, rate_limit
+from app.core.config import get_groq_client, settings
+from app.core.rate_limit import ai_concurrency_limit, rate_limit
 
 router = APIRouter()
 
@@ -16,12 +15,9 @@ async def chat_with_ai(
     request: ChatRequest,
     current_user: User | None = Depends(get_optional_current_user),
     _rate_limit: None = Depends(rate_limit(20, 60)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit()),
+    _ai_limit: None = Depends(ai_concurrency_limit()),
 ):
     try:
-        if not settings.GEMINI_API_KEY:
-            raise HTTPException(status_code=500, detail="Gemini API Key is not configured on the server.")
-
         if not request.messages:
             raise HTTPException(status_code=400, detail="Messages array cannot be empty.")
 
@@ -56,46 +52,36 @@ Tone & Guidelines:
 - Use markdown formatting, bullet points, and code snippets where helpful.
 """
 
-        generation_config = {
-            "temperature": 0.7,
-            "max_output_tokens": 800,
-        }
-
-        try:
-            model = genai.GenerativeModel(
-                model_name="gemini-3.1-flash-lite-preview",
-                system_instruction=system_instruction,
-                generation_config=generation_config,
-            )
-        except Exception:
-            model = genai.GenerativeModel(
-                model_name="gemini-3.6-flash",
-                system_instruction=system_instruction,
-                generation_config=generation_config,
-            )
-
         recent_messages = request.messages[-10:] if len(request.messages) > 10 else request.messages
-        history = []
+        messages = [{"role": "system", "content": system_instruction}]
         for msg in recent_messages[:-1]:
-            role = "user" if msg.role.lower() == "user" else "model"
-            history.append({"role": role, "parts": [msg.content]})
+            role = "assistant" if msg.role.lower() in ("assistant", "model") else "user"
+            messages.append({"role": role, "content": msg.content})
 
         latest_user_message = recent_messages[-1].content
 
-        chat_session = model.start_chat(history=history)
-        try:
+        async with get_groq_client() as client:
             response = await asyncio.wait_for(
-                asyncio.to_thread(chat_session.send_message, latest_user_message),
+                client.chat.completions.create(
+                    model=settings.GROQ_CHAT_MODEL,
+                    messages=[*messages, {"role": "user", "content": latest_user_message}],
+                    temperature=0.7,
+                    max_completion_tokens=800,
+                    reasoning_effort="none",
+                ),
                 timeout=30,
             )
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=504,
-                detail="The AI service took too long to respond. Please try again.",
-            )
 
-        return {"reply": response.text}
+        reply = response.choices[0].message.content
+        if not reply:
+            raise HTTPException(status_code=502, detail="Groq returned an empty chat response.")
+        return {"reply": reply}
 
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="The AI service took too long to respond. Please try again.",
+        )
     except HTTPException:
         raise
     except Exception as e:

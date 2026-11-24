@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from app.schemas.quiz import QuizRequest
 from app.models import Quiz, Question, Option, Classroom
+from app.core.config import GROQ_MAX_IMAGE_BYTES
 from app.services.ai_generator import generate_quiz
 
 ALLOWED_MIME_TYPES = {
@@ -21,7 +22,12 @@ def validate_source_payload(request: QuizRequest) -> None:
         if not request.file_base64:
             raise HTTPException(status_code=400, detail="Missing file data for file-based assessment.")
         
-        estimated_bytes = (len(request.file_base64) * 3) / 4
+        encoded_file = request.file_base64
+        if encoded_file.startswith("data:"):
+            _, separator, encoded_file = encoded_file.partition(",")
+            if not separator:
+                raise HTTPException(status_code=400, detail="Invalid file data URL.")
+        estimated_bytes = (len(encoded_file) * 3) / 4
         if estimated_bytes > MAX_FILE_BYTES:
             raise HTTPException(
                 status_code=413,
@@ -32,6 +38,17 @@ def validate_source_payload(request: QuizRequest) -> None:
             raise HTTPException(
                 status_code=415,
                 detail=f"Unsupported file format '{request.file_mime_type}'. Supported: PDF, JPEG, PNG, WebP.",
+            )
+        if not request.file_mime_type:
+            raise HTTPException(status_code=400, detail="File content type is required.")
+        if (
+            request.file_mime_type
+            and request.file_mime_type.lower().startswith("image/")
+            and estimated_bytes > GROQ_MAX_IMAGE_BYTES
+        ):
+            raise HTTPException(
+                status_code=413,
+                detail="Image exceeds Groq's 14 MB limit. Please upload a smaller image.",
             )
 
     if request.source_type == "text" and request.content_text:
@@ -65,7 +82,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
     raw_sections = getattr(request, "sections", None)
     sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
 
-    questions_data = generate_quiz(
+    questions_data = await generate_quiz(
         topic=topic_title,
         question_count=count,
         quiz_type=request.quiz_type,

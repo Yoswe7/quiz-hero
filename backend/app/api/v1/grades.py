@@ -12,7 +12,7 @@ from app.crud.crud_submission import create_submission, get_submissions_by_role,
 from app.crud.crud_quiz import get_quiz_by_id, quiz_is_visible_to_student, get_student_class_ids
 from app.services.ai_grader import grade_open_answer
 from app.services.srs_services import create_or_get_item
-from app.core.rate_limit import gemini_concurrency_limit, rate_limit
+from app.core.rate_limit import ai_concurrency_limit, rate_limit
 
 router = APIRouter()
 
@@ -22,7 +22,7 @@ async def submit_quiz(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
     _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
 ):
     """
     Server-side exclusive grading endpoint.
@@ -72,24 +72,15 @@ async def submit_quiz(
         elif q_type == "Identification":
             is_corr = user_ans.strip().lower() == correct_ans.strip().lower()
             if not is_corr:
-                # Fuzzy check via AI grader if slight typo
-                try:
-                    res = grade_open_answer(q.question_text, correct_ans, user_ans, q_type)
-                    is_corr = res.get("is_correct", False)
-                    feedback = res.get("feedback", f"Correct: {correct_ans}")
-                except Exception:
-                    feedback = f"Correct: {correct_ans}"
+                res = await grade_open_answer(q.question_text, correct_ans, user_ans, q_type)
+                is_corr = res["is_correct"]
+                feedback = res["feedback"]
             else:
                 feedback = "Exact term match verified."
         else:
-            # Open Ended grading
-            try:
-                res = grade_open_answer(q.question_text, correct_ans, user_ans, q_type)
-                is_corr = res.get("is_correct", False)
-                feedback = res.get("feedback", f"Evaluated. Correct: {correct_ans}")
-            except Exception:
-                is_corr = user_ans.strip().lower() == correct_ans.strip().lower()
-                feedback = f"Evaluated. Correct: {correct_ans}"
+            res = await grade_open_answer(q.question_text, correct_ans, user_ans, q_type)
+            is_corr = res["is_correct"]
+            feedback = res["feedback"]
 
         if is_corr:
             calculated_score += 1.0

@@ -1,5 +1,5 @@
 import re
-from app.core.config import get_model
+from app.core.config import get_groq_client, settings
 from app.services.ai_generator import extract_and_parse_json
 
 
@@ -13,7 +13,7 @@ def normalize_string(s: str) -> str:
     return s
 
 
-def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz_type: str) -> dict:
+async def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz_type: str) -> dict:
     norm_user = normalize_string(user_answer)
     norm_correct = normalize_string(correct_answer)
 
@@ -35,8 +35,7 @@ def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz
                 "score": 100,
             }
 
-    try:
-        model = get_model()
+    async with get_groq_client() as client:
         if quiz_type == "Identification":
             prompt = f"""Grade this identification quiz answer.
 Question: {question}
@@ -57,12 +56,26 @@ Respond ONLY with a JSON object:
 - "score": number from 0 to 100 representing answer quality
 - "feedback": Brief constructive feedback on the answer"""
 
-        response = model.generate_content(prompt)
-        return extract_and_parse_json(response.text)
-    except Exception:
-        is_close = normalize_string(user_answer) in normalize_string(correct_answer) or normalize_string(correct_answer) in normalize_string(user_answer)
-        return {
-            "is_correct": is_close,
-            "feedback": "Automated evaluation processed.",
-            "score": 100 if is_close else 0,
-        }
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+            max_completion_tokens=800,
+            reasoning_effort="none",
+        )
+
+    response_text = response.choices[0].message.content
+    if not response_text:
+        raise ValueError("Groq returned an empty grading response.")
+    result = extract_and_parse_json(response_text)
+    if not isinstance(result, dict) or not isinstance(result.get("is_correct"), bool):
+        raise ValueError("Groq returned an invalid grading response.")
+    if not isinstance(result.get("feedback"), str) or not result["feedback"].strip():
+        raise ValueError("Groq returned a grading response without feedback.")
+    if quiz_type != "Identification":
+        score = result.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 100:
+            raise ValueError("Groq returned an invalid grading score.")
+        result["score"] = float(score)
+    return result

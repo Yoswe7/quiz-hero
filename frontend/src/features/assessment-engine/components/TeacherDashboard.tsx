@@ -136,10 +136,10 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
   const getLoadingStep = (sec: number) => {
     if (sec < 4) return "Reading topic & source material...";
-    if (sec < 9) return "Gemini 3.6 Flash is extracting concepts...";
+    if (sec < 9) return "Groq is extracting concepts...";
     if (sec < 15) return "Synthesizing balanced questions & options...";
     if (sec < 22) return "Validating answer keys & explanations...";
-    return "Finalizing assessment into database...";
+    return "Groq is still processing the source...";
   };
 
   const { data: quizzes = [], isLoading: loadingQuizzes, refetch: loadQuizzes } = useQuery({
@@ -755,7 +755,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                     Click to browse or drag & drop {sourceType === "pdf" ? "lecture PDF" : "image photo"}
                   </p>
                   <p className="text-xs text-stone-500 mt-1">
-                    Gemini 3.6 Flash will extract concepts and synthesize balanced questions strictly from this source.
+                    Groq will extract concepts and synthesize balanced questions strictly from this source.
                   </p>
                 </div>
               </label>
@@ -1078,7 +1078,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {isLoading && (
           <p className="text-center text-xs text-stone-500 animate-pulse font-medium">
-            Generating questions with Gemini 3.6 Flash usually takes 10–25 seconds. Please keep this tab open.
+            Groq is generating questions. Large or scanned PDFs may take longer; please keep this tab open.
           </p>
         )}
 

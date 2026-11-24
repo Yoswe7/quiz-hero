@@ -1,14 +1,15 @@
 import os
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
 
 # Load your API key from the .env file
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+api_key = os.getenv("GROQ_API_KEY")
+if not api_key:
+    raise RuntimeError("GROQ_API_KEY is not configured.")
 
 print("Fetching available models...")
 
-# Loop through and print every model your key can use for text generation
-for m in genai.list_models():
-    if 'generateContent' in m.supported_generation_methods:
-        print(m.name)
+client = Groq(api_key=api_key)
+for model in client.models.list().data:
+    print(model.id)

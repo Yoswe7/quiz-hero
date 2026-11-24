@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-Quiz Hero is an AI-powered academic assessment platform. It operates across two primary environments. The frontend uses Next.js 16 for user interfaces. The backend uses FastAPI to handle database operations and Gemini AI integration.
+Quiz Hero is an AI-powered academic assessment platform. It operates across two primary environments. The frontend uses Next.js 16 for user interfaces. The backend uses FastAPI to handle database operations and Groq AI integration.
 
 ## Core Directive
 **Do not rebuild the application from scratch.** You must work within the existing architectural boundaries. Incrementally fix or build missing features within the current directory structure. Never rewrite established modules. Never propose sweeping framework migrations unless explicitly commanded by the user.
@@ -88,7 +88,7 @@ backend/
 │   │
 │   ├── services/                 # Business Logic (The brain)
 │   │   ├── quiz_service.py       # Handles the publish workflow
-│   │   ├── ai_generator.py       # Gemini prompt building & JSON parsing
+│   │   ├── ai_generator.py       # Groq prompt building & JSON parsing
 │   │   └── ai_grader.py          # Semantic grading logic
 │   │
 │   └── crud/                     # Data Access Layer (Postgres operations)
@@ -122,7 +122,7 @@ Validate all request and response payloads using Pydantic schemas.
 
 Use snake_case for variables, functions, and file names. Use PascalCase for classes and Pydantic models.
 
-Keep AI logic isolated in the services/ layer. Do not hardcode complex Gemini prompts inside API route handlers.
+Keep AI logic isolated in the services/ layer. Do not hardcode complex Groq prompts inside API route handlers.
 
 Avoid deeply nested structures. Use flat, single-purpose functions wherever possible.
 
@@ -131,6 +131,6 @@ Never delete files with rm or similar destructive terminal commands.
 
 Never execute any Git commands.
 
-Never expose the JWT secret or Gemini API keys in the codebase.
+Never expose the JWT secret or Groq API keys in the codebase.
 
 Never return unstripped answer keys in student-facing API endpoints.

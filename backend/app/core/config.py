@@ -1,13 +1,17 @@
 import secrets
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import google.generativeai as genai
+from groq import AsyncGroq
+
+GROQ_MAX_IMAGE_BYTES = 14 * 1024 * 1024
 
 class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     ENABLE_LOCAL_TEST_AUTH: bool = False
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/quiz_hero"
-    GEMINI_API_KEY: str = ""
+    DATABASE_URL: str = "sqlite+aiosqlite:///./quiz_hero.db"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_CHAT_MODEL: str = "qwen/qwen3.8-27b"
     JWT_SECRET: str = secrets.token_urlsafe(32)
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -23,7 +27,7 @@ class Settings(BaseSettings):
     FACULTY_ACCESS_CODE: str = "CVSU_FACULTY_2026"
     REDIS_URL: str = ""
     RATE_LIMIT_ENABLED: bool = True
-    GEMINI_MAX_CONCURRENT_PER_USER: int = 2
+    AI_MAX_CONCURRENT_PER_USER: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -39,11 +43,8 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-
-def get_model() -> genai.GenerativeModel:
-    return genai.GenerativeModel(
-        model_name="gemini-3.6-flash",
-        generation_config={"response_mime_type": "application/json"}
-    )
+def get_groq_client() -> AsyncGroq:
+    api_key = settings.GROQ_API_KEY.strip()
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not configured on the server.")
+    return AsyncGroq(api_key=api_key, timeout=60, max_retries=2)

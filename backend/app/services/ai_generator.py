@@ -1,13 +1,21 @@
 import base64
+import binascii
+from io import BytesIO
 import json
 import re
 from typing import Any, Optional
 
-from app.core.config import get_model
+import pypdfium2 as pdfium
+from pypdf import PdfReader
+
+from app.core.config import GROQ_MAX_IMAGE_BYTES, get_groq_client, settings
 
 
 QUIZ_TYPES = ("Multiple Choice", "True or False", "Identification", "Open Ended")
 MAX_GENERATION_ATTEMPTS = 3
+MAX_PDF_PAGES = 60
+MAX_DOCUMENT_TEXT_CHARS = 100_000
+MAX_IMAGES_PER_REQUEST = 3
 
 
 def extract_and_parse_json(raw_text: str) -> Any:
@@ -71,7 +79,7 @@ def build_prompt(
     base += f"Return EXACTLY {total_count} objects. Never return fewer or more.\n"
     base += "Use only facts supported by the topic or supplied source. Do not invent names, terms, dates, or definitions.\n"
     base += "Each item must test one distinct fact or concept. Do not duplicate or paraphrase another item.\n"
-    base += "Respond ONLY with a JSON array of objects without additional text.\n"
+    base += 'Respond ONLY with a JSON object shaped as {"questions": [...]}.\n'
 
     if is_mixed and active_sections:
         base += "\nThe assessment must be divided into specific sections with the following exact question distribution:\n"
@@ -114,6 +122,165 @@ def build_prompt(
 - "options": [] (empty array)"""
 
     return base
+
+
+def _decode_file_base64(file_base64: str) -> bytes:
+    encoded = file_base64
+    if file_base64.startswith("data:"):
+        _, separator, encoded = file_base64.partition(",")
+        if not separator:
+            raise ValueError("Uploaded file data URL is invalid.")
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ValueError("Uploaded file data is not valid base64.") from error
+
+
+def _render_pdf_page(document: pdfium.PdfDocument, page_index: int) -> bytes:
+    page = document[page_index]
+    try:
+        width, height = page.get_size()
+        scale = min(1.5, 1600 / width, 2000 / height)
+        bitmap = page.render(scale=scale)
+        try:
+            image = bitmap.to_pil()
+            try:
+                output = BytesIO()
+                image.save(output, format="JPEG", quality=80)
+                return output.getvalue()
+            finally:
+                image.close()
+        finally:
+            bitmap.close()
+    finally:
+        page.close()
+
+
+async def _extract_pdf_text(client, pdf_bytes: bytes) -> str:
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes), strict=False)
+        page_count = len(reader.pages)
+        if page_count > MAX_PDF_PAGES:
+            raise ValueError(
+                f"PDF has {page_count} pages; split it into files with no more than {MAX_PDF_PAGES} pages."
+            )
+        page_texts: list[str | None] = []
+        scanned_page_indexes: list[int] = []
+        for index, page in enumerate(reader.pages):
+            page_text = (page.extract_text() or "").strip()
+            page_texts.append(page_text or None)
+            if not page_text:
+                scanned_page_indexes.append(index)
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("The uploaded PDF could not be read.") from error
+
+    if scanned_page_indexes:
+        try:
+            rendered_pdf = pdfium.PdfDocument(pdf_bytes)
+        except Exception as error:
+            raise ValueError("The uploaded PDF could not be rendered for text extraction.") from error
+
+        try:
+            for offset in range(0, len(scanned_page_indexes), MAX_IMAGES_PER_REQUEST):
+                page_indexes = scanned_page_indexes[offset : offset + MAX_IMAGES_PER_REQUEST]
+                first_page = page_indexes[0] + 1
+                last_page = page_indexes[-1] + 1
+                try:
+                    batch = [
+                        (index, _render_pdf_page(rendered_pdf, index))
+                        for index in page_indexes
+                    ]
+                except Exception as error:
+                    raise ValueError(
+                        f"PDF pages {first_page}-{last_page} could not be rendered for text extraction."
+                    ) from error
+                if sum(len(image_bytes) for _, image_bytes in batch) > GROQ_MAX_IMAGE_BYTES:
+                    raise ValueError(
+                        f"Scanned PDF pages {first_page}-{last_page} are too large to process together."
+                    )
+
+                content: list[dict[str, Any]] = [{
+                    "type": "text",
+                    "text": (
+                        "Transcribe all readable text from these scanned PDF pages in order. "
+                        "Preserve headings, equations, and lists. Return only a JSON object with a "
+                        '"pages" array; each item must have "page_number" (the supplied page number) '
+                        'and "text" (the transcription). Do not summarize or add information.'
+                    ),
+                }]
+                for page_index, image_bytes in batch:
+                    if len(image_bytes) > GROQ_MAX_IMAGE_BYTES:
+                        raise ValueError(
+                            f"Scanned PDF page {page_index + 1} is too large to process. Please use a lower-resolution PDF."
+                        )
+                    page_data = base64.b64encode(image_bytes).decode("ascii")
+                    content.extend([
+                        {
+                            "type": "text",
+                            "text": f"PDF page number: {page_index + 1}",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{page_data}",
+                            },
+                        },
+                    ])
+
+                response = await client.chat.completions.create(
+                    model=settings.GROQ_MODEL,
+                    messages=[{"role": "user", "content": content}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                    max_completion_tokens=12_000,
+                    reasoning_effort="none",
+                )
+                response_text = response.choices[0].message.content
+                if not response_text:
+                    raise ValueError(f"Groq returned no text for PDF pages {first_page}-{last_page}.")
+                ocr_result = extract_and_parse_json(response_text)
+                ocr_pages = ocr_result.get("pages") if isinstance(ocr_result, dict) else None
+                if not isinstance(ocr_pages, list):
+                    raise ValueError(f"Groq returned an invalid OCR result for PDF pages {first_page}-{last_page}.")
+
+                expected_indexes = set(page_indexes)
+                found_indexes: set[int] = set()
+                for item in ocr_pages:
+                    if not isinstance(item, dict):
+                        raise ValueError("Groq returned an invalid OCR page.")
+                    page_number = item.get("page_number")
+                    page_text = item.get("text")
+                    if (
+                        not isinstance(page_number, int)
+                        or page_number - 1 not in expected_indexes
+                        or not isinstance(page_text, str)
+                        or not page_text.strip()
+                    ):
+                        raise ValueError("Groq returned an invalid OCR page.")
+                    page_index = page_number - 1
+                    if page_index in found_indexes:
+                        raise ValueError("Groq returned a duplicate OCR page.")
+                    page_texts[page_index] = page_text.strip()
+                    found_indexes.add(page_index)
+                if found_indexes != expected_indexes:
+                    raise ValueError(f"Groq did not transcribe every scanned PDF page in pages {first_page}-{last_page}.")
+        finally:
+            rendered_pdf.close()
+
+    extracted_text = "\n\n".join(
+        f"Page {index + 1}:\n{text}"
+        for index, text in enumerate(page_texts)
+        if text
+    )
+    if not extracted_text:
+        raise ValueError("No readable text was found in the PDF.")
+    if len(extracted_text) > MAX_DOCUMENT_TEXT_CHARS:
+        raise ValueError(
+            f"PDF text exceeds {MAX_DOCUMENT_TEXT_CHARS:,} characters. Split the document into smaller files."
+        )
+    return extracted_text
 
 
 def _expected_items(
@@ -216,7 +383,7 @@ def validate_quiz_data(
             item["section_name"] = expected_section
 
 
-def generate_quiz(
+async def generate_quiz(
     topic: str,
     question_count: int,
     quiz_type: str,
@@ -227,52 +394,83 @@ def generate_quiz(
     file_name: Optional[str] = None,
     sections: Optional[list[dict]] = None,
 ) -> list[dict]:
-    model = get_model()
     expected_count = sum(
         section.get("question_count", 0) for section in (sections or [])
     ) if sections else question_count
-    prompt = build_prompt(
-        topic=topic,
-        question_count=question_count,
-        quiz_type=quiz_type,
-        source_type=source_type,
-        content_text=content_text,
-        file_name=file_name,
-        sections=sections,
-    )
+    active_source_type = source_type
+    active_content_text = content_text
+    image_data_url: str | None = None
 
-    if source_type == "file" and file_base64 and file_mime_type:
-        raw_bytes = base64.b64decode(file_base64)
-        blob_part = {
-            "mime_type": file_mime_type,
-            "data": raw_bytes,
-        }
-        source_contents = [blob_part]
-    else:
-        source_contents = []
+    async with get_groq_client() as client:
+        if source_type == "file" and file_base64 and file_mime_type:
+            raw_bytes = _decode_file_base64(file_base64)
+            if file_mime_type.lower() == "application/pdf":
+                active_source_type = "text"
+                active_content_text = await _extract_pdf_text(client, raw_bytes)
+            else:
+                if len(raw_bytes) > GROQ_MAX_IMAGE_BYTES:
+                    raise ValueError(
+                        f"Image exceeds Groq's {GROQ_MAX_IMAGE_BYTES // (1024 * 1024)} MB image limit. Please upload a smaller image."
+                    )
+                image_mime_type = "image/jpeg" if file_mime_type.lower() == "image/jpg" else file_mime_type.lower()
+                encoded_image = base64.b64encode(raw_bytes).decode("ascii")
+                image_data_url = f"data:{image_mime_type};base64,{encoded_image}"
 
-    last_error = "unknown validation error"
-    for attempt in range(MAX_GENERATION_ATTEMPTS):
-        attempt_prompt = prompt
-        if attempt > 0:
-            attempt_prompt += (
-                f"\nThe previous response failed validation: {last_error}.\n"
-                "Generate a complete replacement array. Do not return a partial repair."
+        prompt = build_prompt(
+            topic=topic,
+            question_count=question_count,
+            quiz_type=quiz_type,
+            source_type=active_source_type,
+            content_text=active_content_text,
+            file_name=file_name,
+            sections=sections,
+        )
+
+        last_error = "unknown validation error"
+        for attempt in range(MAX_GENERATION_ATTEMPTS):
+            attempt_prompt = prompt
+            if attempt > 0:
+                attempt_prompt += (
+                    f"\nThe previous response failed validation: {last_error}.\n"
+                    "Generate a complete replacement object. Do not return a partial repair."
+                )
+
+            message_content: str | list[dict[str, Any]] = attempt_prompt
+            if image_data_url:
+                message_content = [
+                    {"type": "text", "text": attempt_prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ]
+
+            response = await client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[{"role": "user", "content": message_content}],
+                response_format={"type": "json_object"},
+                temperature=0.3,
+                max_completion_tokens=16_384,
+                reasoning_effort="none",
             )
-
-        response = model.generate_content([*source_contents, attempt_prompt])
-        try:
-            quiz_data = extract_and_parse_json(response.text)
-            validate_quiz_data(
-                quiz_data,
-                quiz_type,
-                question_count=expected_count,
-                sections=sections,
-            )
-            return quiz_data
-        except (ValueError, json.JSONDecodeError) as error:
-            last_error = str(error)
+            response_text = response.choices[0].message.content
+            if not response_text:
+                last_error = "Groq returned an empty response"
+                continue
+            try:
+                parsed_response = extract_and_parse_json(response_text)
+                quiz_data = (
+                    parsed_response.get("questions")
+                    if isinstance(parsed_response, dict)
+                    else parsed_response
+                )
+                validate_quiz_data(
+                    quiz_data,
+                    quiz_type,
+                    question_count=expected_count,
+                    sections=sections,
+                )
+                return quiz_data
+            except (ValueError, json.JSONDecodeError) as error:
+                last_error = str(error)
 
     raise ValueError(
-        f"AI generated an invalid assessment after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"
+        f"Groq generated an invalid assessment after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"
     )
