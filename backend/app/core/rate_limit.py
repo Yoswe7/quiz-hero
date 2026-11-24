@@ -21,8 +21,8 @@ _memory_hits: OrderedDict[str, tuple[float, int]] = OrderedDict()
 _memory_lock = asyncio.Lock()
 _redis: Redis | None = Redis.from_url(settings.REDIS_URL, decode_responses=True) if settings.REDIS_URL else None
 _MAX_MEMORY_KEYS = 10_000
-_gemini_memory_counts: OrderedDict[str, int] = OrderedDict()
-_gemini_memory_lock = asyncio.Lock()
+_ai_memory_counts: OrderedDict[str, int] = OrderedDict()
+_ai_memory_lock = asyncio.Lock()
 
 _REDIS_ACQUIRE_SCRIPT = """
 local count = redis.call('INCR', KEYS[1])
@@ -110,49 +110,49 @@ def rate_limit(
     return dependency
 
 
-async def _acquire_gemini_memory(identity: str, limit: int) -> bool:
-    async with _gemini_memory_lock:
-        count = _gemini_memory_counts.get(identity, 0)
+async def _acquire_ai_memory(identity: str, limit: int) -> bool:
+    async with _ai_memory_lock:
+        count = _ai_memory_counts.get(identity, 0)
         if count >= limit:
             return False
-        _gemini_memory_counts[identity] = count + 1
-        _gemini_memory_counts.move_to_end(identity)
-        while len(_gemini_memory_counts) > _MAX_MEMORY_KEYS:
-            _gemini_memory_counts.popitem(last=False)
+        _ai_memory_counts[identity] = count + 1
+        _ai_memory_counts.move_to_end(identity)
+        while len(_ai_memory_counts) > _MAX_MEMORY_KEYS:
+            _ai_memory_counts.popitem(last=False)
         return True
 
 
-async def _release_gemini_memory(identity: str) -> None:
-    async with _gemini_memory_lock:
-        count = _gemini_memory_counts.get(identity, 0)
+async def _release_ai_memory(identity: str) -> None:
+    async with _ai_memory_lock:
+        count = _ai_memory_counts.get(identity, 0)
         if count <= 1:
-            _gemini_memory_counts.pop(identity, None)
+            _ai_memory_counts.pop(identity, None)
         else:
-            _gemini_memory_counts[identity] = count - 1
+            _ai_memory_counts[identity] = count - 1
 
 
-async def _acquire_gemini_redis(identity: str, limit: int) -> bool:
+async def _acquire_ai_redis(identity: str, limit: int) -> bool:
     assert _redis is not None
     result = await _redis.eval(
         _REDIS_ACQUIRE_SCRIPT,
         1,
-        f"quiz-hero:gemini-concurrency:{identity}",
+        f"quiz-hero:ai-concurrency:{identity}",
         limit,
         120,
     )
     return bool(result)
 
 
-async def _release_gemini_redis(identity: str) -> None:
+async def _release_ai_redis(identity: str) -> None:
     assert _redis is not None
     await _redis.eval(
         _REDIS_RELEASE_SCRIPT,
         1,
-        f"quiz-hero:gemini-concurrency:{identity}",
+        f"quiz-hero:ai-concurrency:{identity}",
     )
 
 
-def gemini_concurrency_limit(
+def ai_concurrency_limit(
     *,
     authenticated: bool = False,
 ) -> Callable[..., AsyncGenerator[None, None]]:
@@ -169,31 +169,31 @@ def gemini_concurrency_limit(
         using_redis = _redis is not None
         try:
             if using_redis:
-                acquired = await _acquire_gemini_redis(
+                acquired = await _acquire_ai_redis(
                     identity,
-                    settings.GEMINI_MAX_CONCURRENT_PER_USER,
+                    settings.AI_MAX_CONCURRENT_PER_USER,
                 )
             else:
-                acquired = await _acquire_gemini_memory(
+                acquired = await _acquire_ai_memory(
                     identity,
-                    settings.GEMINI_MAX_CONCURRENT_PER_USER,
+                    settings.AI_MAX_CONCURRENT_PER_USER,
                 )
         except Exception as exc:
             if settings.ENVIRONMENT.lower() == "production":
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Gemini concurrency control is unavailable.",
+                    detail="AI concurrency control is unavailable.",
                 ) from exc
             using_redis = False
-            acquired = await _acquire_gemini_memory(
+            acquired = await _acquire_ai_memory(
                 identity,
-                settings.GEMINI_MAX_CONCURRENT_PER_USER,
+                settings.AI_MAX_CONCURRENT_PER_USER,
             )
 
         if not acquired:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many Gemini operations are already running for this account.",
+                detail="Too many AI operations are already running for this account.",
                 headers={"Retry-After": "30"},
             )
 
@@ -202,11 +202,11 @@ def gemini_concurrency_limit(
         finally:
             if using_redis:
                 try:
-                    await _release_gemini_redis(identity)
+                    await _release_ai_redis(identity)
                 except Exception:
                     if settings.ENVIRONMENT.lower() == "production":
                         raise
             else:
-                await _release_gemini_memory(identity)
+                await _release_ai_memory(identity)
 
     return dependency

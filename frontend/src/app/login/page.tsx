@@ -147,7 +147,7 @@ function LoginPageContent({ showDevBypass = false }: LoginPageProps) {
   const isFacultyCodeMissing =
     authMode === "signup" && selectedRole === "TEACHER" && facultyCode.trim().length === 0;
   
-  const localTestAuthEnabled = showDevBypass;
+  const localTestAuthEnabled = showDevBypass || process.env.NEXT_PUBLIC_ENABLE_LOCAL_TEST_AUTH === "true";
     
   const handleLocalTestLogin = async (role: "STUDENT" | "TEACHER") => {
     setIsLoading(true);

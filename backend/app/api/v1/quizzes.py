@@ -33,7 +33,7 @@ from app.crud.crud_quiz import (
     quiz_is_visible_to_student,
     get_student_class_ids,
 )
-from app.core.rate_limit import gemini_concurrency_limit, rate_limit
+from app.core.rate_limit import ai_concurrency_limit, rate_limit
 
 router = APIRouter()
 
@@ -43,7 +43,7 @@ async def generate_quiz_endpoint(
     request: QuizRequest,
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(5, 60, authenticated=True)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -52,7 +52,7 @@ async def generate_quiz_endpoint(
         raw_sections = getattr(request, "sections", None)
         sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
         
-        questions = generate_quiz(
+        questions = await generate_quiz(
             topic=topic_title,
             question_count=count,
             quiz_type=request.quiz_type or "Multiple Choice",
@@ -78,7 +78,7 @@ async def publish_quiz_endpoint(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
 ):
     validate_source_payload(request)
     try:
@@ -475,10 +475,10 @@ async def grade_answer_endpoint(
     request: GradeAnswerRequest,
     current_user: User = Depends(get_current_user),
     _rate_limit: None = Depends(rate_limit(30, 60, authenticated=True)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit(authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
 ):
     try:
-        result = grade_open_answer(
+        result = await grade_open_answer(
             request.question, request.correct_answer, request.user_answer, request.quiz_type
         )
         return result

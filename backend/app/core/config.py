@@ -6,8 +6,10 @@ from google import genai
 class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     ENABLE_LOCAL_TEST_AUTH: bool = False
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/quiz_hero"
-    GEMINI_API_KEY: str = ""
+    DATABASE_URL: str = "sqlite+aiosqlite:///./quiz_hero.db"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_CHAT_MODEL: str = "qwen/qwen3.8-27b"
     JWT_SECRET: str = secrets.token_urlsafe(32)
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7

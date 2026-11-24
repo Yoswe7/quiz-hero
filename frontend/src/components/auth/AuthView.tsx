@@ -43,7 +43,7 @@ export function AuthView({
         title: "Jump back in.",
         sub: "Assessments that grade themselves while you teach.",
         bullets: [
-          "Instant AI generation from lecture notes, PDFs & syllabi via Gemini 3.5 Flash",
+          "AI generation from lecture notes, PDFs & syllabi via Groq",
           "Real-time gradebook analytics & student roster tracking",
           "Anti-tampering score recalculation & secure assessment windows",
         ],
@@ -63,7 +63,7 @@ export function AuthView({
         title: "Streamline Your Teaching",
         sub: "Build smarter classrooms in minutes, not hours.",
         bullets: [
-          "Deploy Gemini-powered AI quiz generation from your lecture notes and syllabi",
+          "Deploy Groq-powered AI quiz generation from your lecture notes and syllabi",
           "Monitor student rosters, view assignment submissions, and sync gradebooks",
           "Institutional security with automated anti-tampering score tracking",
         ],

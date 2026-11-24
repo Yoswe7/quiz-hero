@@ -16,7 +16,7 @@ async def chat_with_ai(
     request: ChatRequest,
     current_user: User | None = Depends(get_optional_current_user),
     _rate_limit: None = Depends(rate_limit(20, 60)),
-    _gemini_limit: None = Depends(gemini_concurrency_limit()),
+    _ai_limit: None = Depends(ai_concurrency_limit()),
 ):
     try:
         if not (settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.OPENROUTER_API_KEY):
@@ -64,14 +64,14 @@ Tone & Guidelines:
                 generate_chat(router_messages, system_prompt=system_instruction, max_output_tokens=800),
                 timeout=30,
             )
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=504,
-                detail="The AI service took too long to respond. Please try again.",
-            )
 
         return {"reply": reply}
 
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="The AI service took too long to respond. Please try again.",
+        )
     except HTTPException:
         raise
     except Exception as e:

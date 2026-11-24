@@ -16,7 +16,7 @@ def normalize_string(s: str) -> str:
     return s
 
 
-def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz_type: str) -> dict:
+async def grade_open_answer(question: str, correct_answer: str, user_answer: str, quiz_type: str) -> dict:
     norm_user = normalize_string(user_answer)
     norm_correct = normalize_string(correct_answer)
 

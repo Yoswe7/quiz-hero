@@ -128,20 +128,20 @@ AUTHENTICATION AND ACCESS
 
 RESEARCH ALIGNMENT
 [ ] Reconcile the research stack description with the implementation: the project currently uses Next.js 16, FastAPI, SQLModel/SQLAlchemy, and SQLite by default; it does not use Prisma, Auth.js, or the stated Next.js 14 stack.
-[ ] Reconcile the model description: the code currently configures Gemini 3.6 Flash, while the research text names Gemini 1.5 Flash.
+[ ] Reconcile the research model description with the configured Groq model (`qwen/qwen3.8-27b`).
 [ ] Reconcile the input/output scope: the research text mentions flashcards and DOCX, while the current application supports quiz generation from PDF, images, text, and topic prompts only.
 [ ] Define and implement the research evaluation workflow for interviews, consent, participant codes, feedback capture, and thematic-analysis export outside the production gradebook.
 
 SECURITY AND PRIVACY
 [x] Add rate limiting for authentication, quiz generation/publishing, AI grading, chat, file uploads, and repeated quiz/submission requests. Uses Redis when `REDIS_URL` is configured; in-memory limits are only suitable for local development.
-[x] Add request and concurrency limits for expensive Gemini operations so one account cannot exhaust the API quota or create runaway costs. Gemini operations are rate-limited and capped at two concurrent operations per account by default.
+[x] Add request and concurrency limits for expensive AI operations so one account cannot exhaust the API quota or create runaway costs. AI operations are rate-limited and capped at two concurrent operations per account by default.
 [ ] Verify Google ID tokens cryptographically using Google's published keys, issuer, audience, expiry, and hosted-domain checks. The current `decode_google_jwt` only decodes the payload and does not verify the signature.
 [ ] Remove email-only simulation login before production or research deployment. Restrict authentication to verified Google OAuth identities rather than accepting any typed `@cvsu.edu.ph` address.
 [ ] Require a configured JWT secret at startup and add issuer, audience, expiry, key rotation, and short-lived access-token policies. Do not use a generated fallback secret in deployed environments.
 [ ] Add object-level authorization checks: teachers should only edit, view answer keys for, archive, or delete assessments they own or are explicitly assigned to manage.
 [ ] Restrict quiz access by course/section enrollment instead of exposing every published assessment to every authenticated student.
 [ ] Prevent client-controlled submission fields from affecting grading, especially `quiz_id`, topic, score, answer keys, and item ordering. Verify that the submitted question sequence belongs to the selected quiz.
-[ ] Add server-side request-body limits and validate decoded file bytes, MIME signatures, file extensions, malformed Base64, and decompression risks before sending files to Gemini.
+[ ] Add server-side request-body limits and validate decoded file bytes, MIME signatures, file extensions, and decompression risks before sending files to an AI provider.
 [ ] Standardize upload limits across the frontend, backend, reverse proxy, and research scope. The current limits and documented limits do not match.
 [ ] Treat uploaded PDFs, notes, and AI output as untrusted content. Add prompt-injection boundaries and reject generated content that includes instructions, secrets, or unsupported source claims.
 [ ] Add security headers including Content-Security-Policy, Strict-Transport-Security in HTTPS environments, X-Content-Type-Options, Referrer-Policy, and frame protections.

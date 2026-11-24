@@ -310,7 +310,7 @@ export default function LandingPage({}: Props) {
               variants={itemFadeUp}
               className="text-base sm:text-lg text-white/75 leading-relaxed max-w-xl font-normal"
             >
-              Transform lecture notes, PDFs, textbook photos, and syllabus topics into rigorous, curriculum-aligned quizzes in seconds with Gemini 3.6 Flash.
+              Transform lecture notes, PDFs, textbook photos, and syllabus topics into rigorous, curriculum-aligned quizzes with Groq-powered AI.
             </motion.p>
 
             {/* CTA Group */}
@@ -512,7 +512,7 @@ export default function LandingPage({}: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-16">
             {[
               { stat: "100%", label: "Automatic & Semantic Grading", desc: "Instant AI evaluation for multiple-choice, true/false, and open-ended items." },
-              { stat: "< 2.4s", label: "Quiz Generation Speed", desc: "Powered by Google Gemini 3.6 Flash with structured schema guarantees." },
+              { stat: "Groq AI", label: "Quiz Generation", desc: "Source-grounded assessments with structured quiz validation." },
               { stat: "4 Formats", label: "Multi-Format Question Suite", desc: "Multiple Choice, True or False, Identification, and Open-Ended questions." },
             ].map((metric, i) => (
               <motion.div
@@ -912,7 +912,7 @@ export default function LandingPage({}: Props) {
         {/* Bottom Disclaimers */}
         <div className="max-w-7xl mx-auto px-6 sm:px-8 pt-12 mt-12 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-white/40 font-mono">
           <p>© {new Date().getFullYear()} Cavite State University. All rights reserved.</p>
-          <p>Powered by Gemini 3.6 Flash & Quiz Hero AI Assessment Engine.</p>
+          <p>Powered by Groq & Quiz Hero AI Assessment Engine.</p>
         </div>
 
       </section>

@@ -6,7 +6,7 @@
 - **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, TanStack Query, `@react-oauth/google`
 - **Backend:** FastAPI, Python >=3.12 (managed with `uv`), SQLModel / SQLAlchemy (asyncpg / aiosqlite), Alembic
 - **Database:** PostgreSQL (production) / SQLite (`quiz_hero.db` for local development)
-- **AI Engine:** Google Gemini API (`gemini-3.6-flash`, `gemini-3.1-flash-lite`)
+- **AI Engine:** Groq API (`qwen/qwen3.8-27b` for quiz generation, grading, and chat)
 - **Authentication:** Google OAuth 2.0 OpenID Connect with `@cvsu.edu.ph` Hosted Domain (`hd`) verification
 
 ---
@@ -33,7 +33,7 @@
 ## Phase 2: Assessment Engine & Human-in-the-Loop Review
 **Status:** 🟡 IN PROGRESS
 
-- [x] **Multi-format Generation:** PDF, image, text, and topic-based assessment generation using Gemini.
+- [x] **Multi-format Generation:** PDF, image, text, and topic-based assessment generation using Groq.
 - [x] **Faculty Preview Screen:** Human-in-the-loop review step before publishing assessments.
 - [ ] **Question-Level Editing:** Inline edits for questions, distractors, and answer keys prior to approval.
 - [ ] **Course/Section Metadata:** Section tagging for class-level assessment distribution.
@@ -53,7 +53,7 @@
 ## Phase 4: Production Hardening & Research Evaluation
 **Status:** ⚪ UPCOMING
 
-- [ ] Rate limiting on expensive Gemini generation endpoints.
+- [x] Rate limiting on expensive AI generation endpoints.
 - [ ] Audit logging for assessment publications, grade edits, and role assignments.
 - [ ] Cross-browser and accessibility audits (WCAG 2.1 AA).
 - [ ] Research telemetry export for academic thesis evaluation.
