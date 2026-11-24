@@ -46,6 +46,7 @@ class Quiz(SQLModel, table=True):
     )
     is_assigned: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
     allow_retakes: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
+    max_attempts: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     time_limit_minutes: Optional[int] = Field(default=None, sa_column=Column(Integer, nullable=True))
     review_status: str = Field(default="draft", index=True)
     created_at: datetime = Field(

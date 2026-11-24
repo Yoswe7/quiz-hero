@@ -8,9 +8,10 @@ interface Props {
   topic: string;
   questions: Question[];
   quizType: string;
+  onBack?: () => void;
 }
 
-export default function TeacherQuizPreview({ topic, questions, quizType }: Props) {
+export default function TeacherQuizPreview({ topic, questions, quizType, onBack }: Props) {
   return (
     <div className="space-y-6 print:space-y-0">
       <div className="flex flex-col gap-4 border-b border-stone-200 pb-5 sm:flex-row sm:items-start sm:justify-between print:hidden">
@@ -22,13 +23,24 @@ export default function TeacherQuizPreview({ topic, questions, quizType }: Props
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          <Link
-            href="/studio"
-            className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green flex items-center gap-1.5 cursor-pointer"
-          >
-            <IconArrowLeft size={15} />
-            <span>Back to Studio</span>
-          </Link>
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green flex items-center gap-1.5 cursor-pointer"
+            >
+              <IconArrowLeft size={15} />
+              <span>Back to Studio</span>
+            </button>
+          ) : (
+            <Link
+              href="/studio"
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-xs transition-colors hover:border-cvsu-green hover:text-cvsu-green flex items-center gap-1.5 cursor-pointer"
+            >
+              <IconArrowLeft size={15} />
+              <span>Back to Studio</span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => window.print()}

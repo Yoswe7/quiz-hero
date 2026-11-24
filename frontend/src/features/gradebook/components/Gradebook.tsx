@@ -174,7 +174,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
               </thead>
               <tbody className="divide-y divide-stone-100 text-stone-800">
                 {filteredGrades.map((g, idx) => (
-                  <tr key={idx} className="hover:bg-[#F7F7F2] transition-colors group">
+                  <tr key={g.id ?? idx} className="hover:bg-[#F7F7F2] transition-colors group">
                     <td className="py-3.5 px-5 font-bold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors">{g.student_name}</td>
                     <td className="py-3.5 px-5 font-mono text-stone-500 text-[11px]">
                       {g.student_email || "—"}
@@ -232,7 +232,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
         <div className="space-y-3">
           {filteredGrades.map((g, idx) => (
             <div
-              key={idx}
+              key={g.id ?? idx}
               className="p-5 bg-white border border-stone-200 rounded-3xl flex items-center justify-between gap-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all group"
             >
               <div className="space-y-1">

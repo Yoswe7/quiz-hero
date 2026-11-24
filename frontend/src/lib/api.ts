@@ -13,7 +13,7 @@ import {
   ClassroomMember,
 } from "@/types/quiz";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
 
 // Helper to attach JWT token
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
@@ -31,16 +31,40 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const response = await fetch(url, { cache: "no-store", ...options, headers });
   
   if (!response.ok) {
+    // Clear stored auth on 401 so stale tokens don't linger.
+    if (response.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("cvsu_token");
+      localStorage.removeItem("cvsu_user");
+    }
     let errorDetail = "An error occurred";
     try {
-      const errorData = await response.json();
-      errorDetail = errorData.detail || errorDetail;
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const errorData = await response.json();
+        errorDetail = errorData.detail || errorDetail;
+      } else {
+        const text = await response.text();
+        errorDetail = text || response.statusText || errorDetail;
+      }
     } catch {
       errorDetail = response.statusText || errorDetail;
     }
-    throw new Error(errorDetail);
+    throw new ApiError(errorDetail, response.status);
   }
   
+  // Handle empty/non-JSON responses safely (e.g. 204 No Content).
+  if (response.status === 204) {
+    return null as any;
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text as any;
+    }
+  }
   return response.json();
 }
 
@@ -178,6 +202,49 @@ export async function fetchQuizAnswers(
   return fetchWithAuth(`${API_URL}/quizzes/${quizId}/answers`);
 }
 
+export async function fetchQuizAttempts(quizId: string): Promise<{
+  attempts: {
+    attempt_id: number;
+    student_email: string;
+    student_name: string;
+    raw_score: number;
+    adjusted_score: number | null;
+    final_score: number;
+    total_items: number;
+    is_verified: boolean;
+    faculty_remarks: string | null;
+    reviewed_at: string | null;
+    reviewed_by: number | null;
+    answers: {
+      question: string;
+      user_answer: string;
+      correct_answer: string;
+      is_correct: boolean;
+      is_overridden: boolean;
+      awarded_points: number;
+    }[];
+  }[];
+}> {
+  return fetchWithAuth(`${API_URL}/faculty/quizzes/${quizId}/attempts`);
+}
+
+export async function gradeFacultyAttempt(
+  attemptId: number,
+  answerOverrides: { answer_index: number; is_overridden: boolean; awarded_points: number }[],
+  adjustedScore?: number | null,
+  facultyRemarks?: string | null,
+  isVerified: boolean = true
+): Promise<{ message: string; attempt_id: number; raw_score: number; adjusted_score: number | null; final_score: number; is_verified: boolean; faculty_remarks: string | null; reviewed_at: string | null }> {
+  const params = new URLSearchParams();
+  if (adjustedScore !== undefined && adjustedScore !== null) params.set("adjusted_score", String(adjustedScore));
+  if (facultyRemarks !== undefined && facultyRemarks !== null) params.set("faculty_remarks", facultyRemarks);
+  params.set("is_verified", String(isVerified));
+  return fetchWithAuth(`${API_URL}/faculty/attempts/${attemptId}/grade?${params.toString()}`, {
+    method: "PATCH",
+    body: JSON.stringify(answerOverrides),
+  });
+}
+
 export async function updateQuiz(
   quizId: string,
   payload: {
@@ -240,11 +307,8 @@ export async function gradeAnswer(
 }
 
 export async function submitQuiz(
-  studentName: string,
-  studentEmail: string,
   quizId: string,
   topic: string,
-  score: number,
   totalQuestions: number,
   answers: { question: string; user_answer: string }[] | AnswerDetail[]
 ): Promise<{
@@ -259,11 +323,8 @@ export async function submitQuiz(
   return fetchWithAuth(`${API_URL}/submit-quiz`, {
     method: "POST",
     body: JSON.stringify({
-      student_name: studentName,
-      student_email: studentEmail,
       quiz_id: quizId,
       topic,
-      score,
       total_questions: totalQuestions,
       answers,
     }),

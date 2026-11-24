@@ -7,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
-from app.models import Submission, User
+from app.models import Quiz, Submission, User
+from app.crud.crud_quiz import get_quiz_by_id
 from app.schemas.faculty_attempts import StudentAnswerOverride, StudentAnswerOverrideResponse
 
 
-router = APIRouter(prefix="/faculty", tags=["Faculty"])
+router = APIRouter(tags=["Faculty"])
 
 
 @router.get("/quizzes/{quiz_id}/attempts")
@@ -24,10 +25,13 @@ async def get_faculty_quiz_attempts(
     Faculty-facing: Return all student attempts for a quiz
     with item-level answer data and faculty verification fields.
     """
-    # Verify teacher owns this quiz
-    quiz_result = await db.execute(
-        select(Submission).where(Submission.quiz_id == quiz_id)
-    )
+    # Verify the quiz exists and is owned by the current teacher
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only view attempts for your own assessments.")
+
     # Get all submissions for this quiz
     result = await db.execute(
         select(Submission).where(Submission.quiz_id == quiz_id).order_by(Submission.student_email)
@@ -45,13 +49,13 @@ async def get_faculty_quiz_attempts(
             is_overridden = ans.get("is_overridden", False)
             awarded_points = ans.get("awarded_points", 0.0)
             correct_answer = ans.get("correct_answer", "")
-            selected_answer = ans.get("selected_answer", "")
-            question_text = ans.get("question_text", "")
+            selected_answer = ans.get("selected_answer", ans.get("user_answer", ""))
+            question_text = ans.get("question_text", ans.get("question", ""))
             is_correct = ans.get("is_correct", False)
 
             enriched_answers.append({
-                "question_text": question_text,
-                "selected_answer": selected_answer,
+                "question": question_text,
+                "user_answer": selected_answer,
                 "correct_answer": correct_answer,
                 "is_correct": is_correct,
                 "is_overridden": is_overridden,
@@ -95,6 +99,13 @@ async def grade_faculty_attempt(
     submission = result.scalar_one_or_none()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Verify the teacher owns the related quiz
+    quiz = await get_quiz_by_id(db, submission.quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only grade attempts for your own assessments.")
 
     # Persist answer overrides into the answers JSON
     answers = submission.answers or []

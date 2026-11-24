@@ -110,5 +110,8 @@ async def require_student(
     return current_user
 
 async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    # Alembic is the single source of truth for schema in production. Only
+    # bootstrap tables automatically in local/dev/test environments.
+    if settings.ENVIRONMENT.lower() in {"development", "dev", "local", "test", "testing"}:
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)

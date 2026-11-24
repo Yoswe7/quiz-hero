@@ -20,6 +20,7 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("allow_retakes", sa.Boolean(), nullable=False, server_default=sa.false())
         )
+    op.execute("UPDATE quizzes SET allow_retakes = FALSE WHERE allow_retakes IS NULL")
 
 
 def downgrade() -> None:

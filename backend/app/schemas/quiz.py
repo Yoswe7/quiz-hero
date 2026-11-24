@@ -133,4 +133,6 @@ class QuizUpdateRequest(BaseModel):
     questions: list[QuestionUpdate]
     available_from: Optional[datetime] = None
     due_at: Optional[datetime] = None
+    allow_retakes: Optional[bool] = None
+    max_attempts: Optional[int] = Field(default=None, ge=1)
     time_limit_minutes: Optional[int] = Field(default=None, ge=1)

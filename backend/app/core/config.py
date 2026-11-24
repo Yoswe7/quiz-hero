@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "qwen/qwen3.8-27b"
     GROQ_CHAT_MODEL: str = "qwen/qwen3.8-27b"
-    JWT_SECRET: str = secrets.token_urlsafe(32)
+    JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
     CORS_ORIGINS: list[str] = [
@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     GEMINI_CHAT_MODEL: str = "gemini-3.1-flash-lite-preview"
     GROQ_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
     GONKARO_API_KEY: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
@@ -101,6 +102,20 @@ class Settings(BaseSettings):
             and not self.REDIS_URL
         ):
             raise ValueError("REDIS_URL is required when rate limiting is enabled in production.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_jwt_secret(self) -> "Settings":
+        if not self.JWT_SECRET:
+            if self.ENVIRONMENT.lower() in {"development", "dev", "local", "test", "testing"}:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "JWT_SECRET is empty; using insecure dev-only fallback secret. "
+                    "Set JWT_SECRET in .env for any non-dev environment."
+                )
+                self.JWT_SECRET = "dev-only-insecure-secret"
+            else:
+                raise ValueError("JWT_SECRET is required in non-development environments.")
         return self
 
 settings = Settings()

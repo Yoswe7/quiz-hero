@@ -19,7 +19,7 @@ async def chat_with_ai(
     _ai_limit: None = Depends(ai_concurrency_limit()),
 ):
     try:
-        if not (settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.OPENROUTER_API_KEY):
+        if not (settings.GEMINI_API_KEY or settings.GROQ_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY or settings.GONKARO_API_KEY):
             raise HTTPException(status_code=500, detail="No AI provider is configured on the server.")
 
         if not request.messages:

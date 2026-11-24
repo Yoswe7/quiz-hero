@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlmodel import select, delete
-from app.models import Quiz, Question
+from app.models import Quiz, Question, QuizSession
 from app.models.quiz import Option
 from app.models.submission import Submission
 from app.models.classroom import ClassroomMembership
@@ -71,6 +71,8 @@ async def list_faculty_pending_assignments(
                 "course_code": quiz.course_code,
                 "class_section": quiz.class_section,
                 "due_at": quiz.due_at,
+                "allow_retakes": quiz.allow_retakes,
+                "max_attempts": quiz.max_attempts,
                 "pending_student_emails": sorted(set(pending_students)),
             })
     return assignments
@@ -142,6 +144,9 @@ async def delete_quiz(db: AsyncSession, quiz_id: str) -> bool:
     if not quiz:
         return False
 
+    # 0. Delete associated quiz sessions (no DB cascade)
+    await db.execute(delete(QuizSession).where(QuizSession.quiz_id == quiz_id))
+
     # 1. Delete associated student submissions
     await db.execute(delete(Submission).where(Submission.quiz_id == quiz_id))
 
@@ -171,6 +176,10 @@ async def update_quiz(
     due_at: datetime | None = None,
     update_available_from: bool = False,
     update_due_at: bool = False,
+    allow_retakes: bool | None = None,
+    update_allow_retakes: bool = False,
+    max_attempts: int | None = None,
+    update_max_attempts: bool = False,
     time_limit_minutes: int | None = None,
     update_time_limit_minutes: bool = False,
 ) -> Quiz | None:
@@ -186,6 +195,10 @@ async def update_quiz(
         quiz.due_at = due_at
     if update_time_limit_minutes:
         quiz.time_limit_minutes = time_limit_minutes
+    if update_allow_retakes:
+        quiz.allow_retakes = bool(allow_retakes)
+    if update_max_attempts:
+        quiz.max_attempts = max_attempts
 
     # 1. Find existing questions for this quiz to delete their options
     q_stmt = select(Question.id).where(Question.quiz_id == quiz_id)

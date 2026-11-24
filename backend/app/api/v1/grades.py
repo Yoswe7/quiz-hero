@@ -8,7 +8,7 @@ from sqlmodel import select
 from app.schemas.quiz import QuizSubmissionRequest
 from app.models import QuizSession, ReviewItem, Submission, User
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
-from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission
+from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission, get_submission_by_id
 from app.crud.crud_quiz import get_quiz_by_id, quiz_is_visible_to_student, get_student_class_ids
 from app.services.ai_grader import grade_open_answer
 from app.services.srs_services import create_or_get_item
@@ -47,9 +47,32 @@ async def submit_quiz(
     if not official_quiz:
         raise HTTPException(status_code=404, detail="Assessment not found.")
     if current_user.role.upper() == "STUDENT":
+        if official_quiz.review_status != "published":
+            raise HTTPException(status_code=403, detail="This assessment is still under faculty review.")
         class_ids = await get_student_class_ids(db, current_user.email)
         if not quiz_is_visible_to_student(official_quiz, current_user.email, class_ids):
             raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
+
+    # Retake / attempt-limit enforcement
+    existing_submissions = (
+        await db.execute(
+            select(Submission).where(Submission.quiz_id == official_quiz.id)
+        )
+    ).scalars().all()
+    student_submissions = [
+        s for s in existing_submissions
+        if (s.student_email or "").strip().lower() == current_user.email.strip().lower()
+    ]
+    if student_submissions:
+        if not official_quiz.allow_retakes:
+            raise HTTPException(status_code=403, detail="Retakes are not allowed for this assessment.")
+        if (
+            official_quiz.allow_retakes
+            and official_quiz.max_attempts is not None
+            and official_quiz.max_attempts > 0
+            and len(student_submissions) >= official_quiz.max_attempts
+        ):
+            raise HTTPException(status_code=403, detail="Maximum number of attempts reached for this assessment.")
 
     session = (
         await db.execute(
@@ -63,9 +86,22 @@ async def submit_quiz(
         )
     ).scalar_one_or_none()
     timed_out = False
-    if official_quiz.time_limit_minutes is not None and session is not None:
-        submission_started_at = session.started_at or datetime.now(timezone.utc)
-        if session.expires_at is not None and datetime.now(timezone.utc) > session.expires_at + timedelta(seconds=15):
+    if official_quiz.time_limit_minutes is not None:
+        # Enforce server-side session existence for timed quizzes.
+        if session is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Quiz session not started. Start the assessment before submitting.",
+            )
+        now = datetime.now(timezone.utc)
+        expires_at = _as_utc(session.expires_at)
+        grace = timedelta(seconds=10)
+        if expires_at is not None and now > expires_at + grace:
+            raise HTTPException(
+                status_code=403,
+                detail="Submission exceeded the time limit.",
+            )
+        if expires_at is not None and now > expires_at:
             timed_out = True
         session.is_completed = True
 
@@ -133,6 +169,7 @@ async def submit_quiz(
         quiz_id=submission_req.quiz_id,
         topic=official_quiz.topic,
         score=calculated_score,
+        raw_score=calculated_score,
         total_questions=total_q,
         percentage=percentage,
         started_at=session.started_at if session else None,
@@ -293,6 +330,16 @@ async def delete_grade_endpoint(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher)
 ):
+    submission = await get_submission_by_id(db, submission_id)
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    quiz = await get_quiz_by_id(db, submission.quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only delete submissions for your own assessments.")
+
     success = await delete_submission(db, submission_id)
     if not success:
         raise HTTPException(status_code=404, detail="Submission not found")

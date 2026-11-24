@@ -156,6 +156,8 @@ async def list_quizzes_endpoint(
                 "assigned_student_emails": q.assigned_student_emails or [],
                 "review_status": q.review_status,
                 "time_limit_minutes": q.time_limit_minutes,
+                "allow_retakes": q.allow_retakes,
+                "max_attempts": q.max_attempts,
             }
             for q in quizzes
         ]
@@ -366,14 +368,20 @@ async def start_quiz_session_endpoint(
     if not quiz_is_visible_to_student(quiz, current_user.email, class_ids):
         raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
 
-    existing = (await db.execute(
+    existing_submissions = (await db.execute(
         select(Submission).where(
             Submission.quiz_id == quiz.id,
-            Submission.student_email == current_user.email,
         )
-    )).scalar_one_or_none()
-    if existing and not quiz.allow_retakes:
+    )).scalars().all()
+    student_submissions = [
+        s for s in existing_submissions
+        if (s.student_email or "").strip().lower() == current_user.email.strip().lower()
+    ]
+    existing = student_submissions[-1] if student_submissions else None
+    if student_submissions and not quiz.allow_retakes:
         raise HTTPException(status_code=403, detail="Retakes are not allowed for this assessment.")
+    if student_submissions and quiz.allow_retakes and quiz.max_attempts is not None and quiz.max_attempts > 0 and len(student_submissions) >= quiz.max_attempts:
+        raise HTTPException(status_code=403, detail="Maximum number of attempts reached for this assessment.")
 
     now = datetime.now(timezone.utc)
     if quiz.time_limit_minutes is None:
@@ -474,6 +482,8 @@ async def update_quiz_endpoint(
 
     update_available_from = "available_from" in request.model_fields_set
     update_due_at = "due_at" in request.model_fields_set
+    update_allow_retakes = "allow_retakes" in request.model_fields_set
+    update_max_attempts = "max_attempts" in request.model_fields_set
 
     norm_available_from = normalize_dt(request.available_from) if update_available_from else normalize_dt(quiz.available_from)
     norm_due_at = normalize_dt(request.due_at) if update_due_at else normalize_dt(quiz.due_at)
@@ -498,6 +508,10 @@ async def update_quiz_endpoint(
         due_at=norm_due_at if update_due_at else quiz.due_at,
         update_available_from=update_available_from,
         update_due_at=update_due_at,
+        allow_retakes=request.allow_retakes if update_allow_retakes else None,
+        update_allow_retakes=update_allow_retakes,
+        max_attempts=request.max_attempts if update_max_attempts else None,
+        update_max_attempts=update_max_attempts,
         time_limit_minutes=request.time_limit_minutes if update_time_limit_minutes else None,
         update_time_limit_minutes=update_time_limit_minutes,
     )
@@ -532,6 +546,12 @@ async def assign_student_endpoint(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher),
 ):
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only assign students to your own assessments.")
+
     quiz, already_assigned = await assign_student_to_quiz(
         db=db,
         quiz_id=quiz_id,
@@ -558,6 +578,12 @@ async def delete_quiz_endpoint_handler(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher)
 ):
+    quiz = await get_quiz_by_id(db, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if not quiz.created_by_email or quiz.created_by_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=403, detail="You can only delete your own assessments.")
+
     success = await delete_quiz(db, quiz_id)
     if not success:
         raise HTTPException(status_code=404, detail="Assessment not found or already deleted")

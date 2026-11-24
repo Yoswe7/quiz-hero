@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { CvSUUser } from "@/types/quiz";
-import { fetchCurrentUser } from "@/lib/api";
+import { fetchCurrentUser, ApiError } from "@/lib/api";
 
 interface AuthContextType {
   user: CvSUUser | null;
@@ -32,9 +32,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentUser);
         setToken(storedToken);
         localStorage.setItem("cvsu_user", JSON.stringify(currentUser));
-      } catch {
-        localStorage.removeItem("cvsu_user");
-        localStorage.removeItem("cvsu_token");
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0;
+        if (status === 401 || status === 403) {
+          localStorage.removeItem("cvsu_user");
+          localStorage.removeItem("cvsu_token");
+        }
+        // Transient/network errors keep session intact.
       } finally {
         setIsLoaded(true);
       }

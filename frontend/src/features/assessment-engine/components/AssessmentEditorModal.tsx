@@ -30,6 +30,7 @@ export default function AssessmentEditorModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [detailError, setDetailError] = useState("");
 
   // Load full quiz details with answer keys
   useEffect(() => {
@@ -37,10 +38,14 @@ export default function AssessmentEditorModal({
     async function loadData() {
       setIsLoading(true);
       setError("");
+      setDetailError("");
       try {
         const [data, detail] = await Promise.all([
           fetchQuizAnswers(quizId),
-          fetchQuizDetail(quizId).catch(() => null),
+          fetchQuizDetail(quizId).catch((err) => {
+            if (mounted) setDetailError(err instanceof Error ? err.message : "Failed to load assessment details.");
+            return null;
+          }),
         ]);
         if (mounted) {
           if (data.topic) setTopic(data.topic);
@@ -310,6 +315,16 @@ export default function AssessmentEditorModal({
                 <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-800 text-xs font-semibold flex items-center gap-2.5 shadow-xs">
                   <IconCheckCircle size={18} className="text-cvsu-green shrink-0" />
                   <p>{success}</p>
+                </div>
+              )}
+
+              {detailError && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs font-semibold flex items-start gap-2.5 shadow-xs">
+                  <span className="text-base leading-none">⚠️</span>
+                  <div className="flex-1">
+                    <p className="font-bold">Assessment details failed to load</p>
+                    <p className="mt-0.5">{detailError}</p>
+                  </div>
                 </div>
               )}
 

@@ -43,6 +43,9 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
   const serverOffsetRef = useRef(0);
   const hasAutoSubmittedRef = useRef(false);
   const hasCompletedRef = useRef(false);
+  const recordedAnswersRef = useRef(recordedAnswers);
+  const onCompleteRef = useRef(onComplete);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   const question = questions[currentIndex];
   const itemQuizType = question?.quiz_type || quizType;
@@ -59,6 +62,14 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
       ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
       : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   };
+
+  useEffect(() => {
+    recordedAnswersRef.current = recordedAnswers;
+  }, [recordedAnswers]);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     if (!question || hasCompletedRef.current) return;
@@ -79,8 +90,9 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
         serverOffsetRef.current = new Date(session.server_now).getTime() - Date.now();
         if (cancelled) return;
         setExpiresAtMs(expiresAt);
-      } catch {
-        // Continue untimed if the session start fails.
+      } catch (err) {
+        if (cancelled) return;
+        setSessionError(err instanceof Error ? err.message : "Failed to start quiz session.");
       }
     })();
     return () => {
@@ -97,11 +109,11 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
       if (remaining <= 0 && !hasAutoSubmittedRef.current) {
         hasAutoSubmittedRef.current = true;
         clearDraft(draftKey);
-        onComplete(recordedAnswers);
+        onCompleteRef.current(recordedAnswersRef.current);
       }
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [expiresAtMs, draftKey, onComplete, recordedAnswers]);
+  }, [expiresAtMs]);
 
   const advanceQuestion = useCallback(() => {
     setTextInput("");
@@ -133,7 +145,7 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
         }
       }
     },
-    [isAnswerLocked, currentIndex, question, recordedAnswers, questions.length, onComplete, advanceQuestion]
+    [isAnswerLocked, currentIndex, question, recordedAnswers, questions.length, onComplete, advanceQuestion, draftKey]
   );
 
   // Keyboard shortcut listener for Multiple Choice / True or False (Keys 1-4 or A-D)
@@ -168,6 +180,16 @@ export default function QuizPlayer({ quizId, studentEmail, questions, quizType, 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isTextInput, isAnswerLocked, question.options, processAnswer]);
+
+  if (sessionError) {
+    return (
+      <div className="view-transition space-y-9">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm font-semibold">
+          {sessionError}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="view-transition space-y-9">

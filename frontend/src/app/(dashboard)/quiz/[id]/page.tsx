@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchQuizAnswers, fetchQuizDetail, submitQuiz } from "@/lib/api";
@@ -24,6 +24,7 @@ export default function QuizPage() {
   const [score, setScore] = useState(0);
   const [answers, setAnswers] = useState<AnswerDetail[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasSubmittedRef = useRef(false);
   const [submitError, setSubmitError] = useState("");
 
   const { data: quizDetail, isLoading, error } = useQuery({
@@ -61,20 +62,16 @@ export default function QuizPage() {
 
   const handleQuizComplete = async (rawAnswers: StudentQuizAnswerInput[]) => {
     if (!quizDetail) return;
+    if (hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
     setIsSubmitting(true);
     setSubmitError("");
 
     try {
-      const studentName = user?.full_name || user?.name || user?.email.split("@")[0] || "Student";
-      const studentEmail = user?.email || "";
-
       // Server-side evaluation
       const result = await submitQuiz(
-        studentName,
-        studentEmail,
         quizDetail.id,
         quizDetail.topic,
-        0,
         quizDetail.question_count,
         rawAnswers
       );
@@ -83,6 +80,7 @@ export default function QuizPage() {
       setAnswers(result.answers ?? []);
       setView("results");
     } catch (err: unknown) {
+      hasSubmittedRef.current = false;
       const msg = err instanceof Error ? err.message : "Failed to submit assessment evaluation.";
       setSubmitError(msg);
     } finally {

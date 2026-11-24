@@ -1,6 +1,4 @@
-import asyncio
 import re
-from concurrent.futures import ThreadPoolExecutor
 
 from app.schemas.ai import IdentificationGrade, OpenEndedGrade
 from app.services.llm_router import generate_structured
@@ -60,16 +58,7 @@ Respond ONLY with a JSON object:
 - "score": number from 0 to 100 representing answer quality
 - "feedback": Brief constructive feedback on the answer"""
 
-        async def _invoke() -> None:
-            return await generate_structured(prompt, schema, task="grading")
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            result = asyncio.run(_invoke())
-        else:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                result = pool.submit(lambda: asyncio.run(_invoke())).result()
+        result = await generate_structured(prompt, schema, task="grading")
         return result.model_dump()
     except Exception:
         is_close = normalize_string(user_answer) in normalize_string(correct_answer) or normalize_string(correct_answer) in normalize_string(user_answer)

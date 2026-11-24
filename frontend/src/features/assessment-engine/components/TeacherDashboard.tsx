@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, deleteQuiz, assignStudentToQuiz, API_URL } from "@/lib/api";
+import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
 import {
   IconList,
@@ -106,7 +106,6 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [idCount, setIdCount] = useState(0);
   const [openCount, setOpenCount] = useState(10);
   const [allowRetakes, setAllowRetakes] = useState(false);
-  const [maxAttempts, setMaxAttempts] = useState("0");
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
 
   const totalMixedCount = mcCount + tfCount + idCount + openCount;
@@ -406,17 +405,30 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   };
 
   const openSubmissionDrawer = async (quizId: string) => {
-    // Fetch submissions for this quiz from the API
-    // For now, we'll set the drawer open
-    setShowSubmissionDrawer(true);
+    try {
+      const data = await fetchQuizAttempts(quizId);
+      const first = data.attempts?.[0];
+      if (first) {
+        setSelectedAttempt({ submissionId: first.attempt_id, attemptData: first });
+      } else {
+        setSelectedAttempt(null);
+      }
+      setShowSubmissionDrawer(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to load submissions.");
+    }
   };
 
   const saveAttemptGrade = async () => {
     if (!selectedAttempt) return;
-    const { submissionId } = selectedAttempt;
-    // Call the faculty grading endpoint
+    const { submissionId, attemptData } = selectedAttempt;
     try {
-      // TODO: Implement the API call to grade the attempt
+      const overrides = (attemptData?.answers || []).map((ans: any, idx: number) => ({
+        answer_index: idx,
+        is_overridden: Boolean(ans.is_overridden),
+        awarded_points: Number(ans.awarded_points ?? (ans.is_correct ? 1 : 0)),
+      }));
+      await gradeFacultyAttempt(submissionId, overrides, undefined, facultyRemarks, true);
       setShowSubmissionDrawer(false);
       setSelectedAttempt(null);
       setFacultyRemarks("");
@@ -623,7 +635,17 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           </div>
         </div>
 
-        <TeacherQuizPreview topic={previewTopic} questions={previewQuestions} quizType={quizType} />
+        <TeacherQuizPreview
+          topic={previewTopic}
+          questions={previewQuestions}
+          quizType={quizType}
+          onBack={() => {
+            setPreviewQuestions(null);
+            setSuccessMessage("");
+            setPreviewQuizId(null);
+            setPreviewReviewStatus("draft");
+          }}
+        />
 
         {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700" role="alert">{error}</p>}
 

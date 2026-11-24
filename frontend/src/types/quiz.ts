@@ -83,6 +83,7 @@ export interface PublishedQuiz {
   assigned_student_emails?: string[];
   review_status: "draft" | "published";
   allow_retakes: boolean;
+  max_attempts?: number | null;
   time_limit_minutes?: number | null;
 }
 
