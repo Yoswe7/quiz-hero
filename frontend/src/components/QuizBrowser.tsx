@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PublishedQuiz, QuizType } from "@/types/quiz";
+import { QuizType } from "@/types/quiz";
 import { fetchQuizzes, joinClassroom } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
 import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
@@ -145,63 +145,98 @@ export default function QuizBrowser({ onSelectQuiz, onViewGrades }: Props) {
         </div>
       ) : (
         <div className="space-y-4">
-          {quizzes.map((quiz) => (
-            <button
-              key={quiz.id}
-              type="button"
-              onClick={() => onSelectQuiz(quiz.id)}
-              className="w-full text-left p-5 sm:p-6 bg-white hover:bg-[#F7F7F2]/60 border border-stone-200 hover:border-cvsu-green rounded-2xl transition-all duration-200 flex items-center justify-between gap-4 group cursor-pointer shadow-sm hover:shadow-md"
-            >
-              <div className="min-w-0 flex-1 space-y-2.5">
-                <p className="text-base sm:text-lg font-semibold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors truncate tracking-tight">
-                  {quiz.topic}
-                </p>
-                
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cvsu-light text-cvsu-green font-bold border border-cvsu-green/30">
-                    {FORMAT_ICONS[quiz.quiz_type]}
-                    <span>{quiz.quiz_type}</span>
-                  </span>
-                  <span className="inline-flex items-center rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
-                    Verified &amp; Published
-                  </span>
+          {quizzes.map((quiz) => {
+            const isLocked = Boolean(quiz.retake_locked);
+            return (
+              <button
+                key={quiz.id}
+                type="button"
+                disabled={isLocked}
+                aria-disabled={isLocked}
+                onClick={() => {
+                  if (!isLocked) onSelectQuiz(quiz.id);
+                }}
+                className={`w-full text-left p-5 sm:p-6 bg-white border rounded-2xl transition-all duration-200 flex items-center justify-between gap-4 group shadow-sm ${
+                  isLocked
+                    ? "border-stone-200 opacity-80 cursor-not-allowed bg-[#F7F7F2]/50"
+                    : "hover:bg-[#F7F7F2]/60 border-stone-200 hover:border-cvsu-green cursor-pointer hover:shadow-md"
+                }`}
+              >
+                <div className="min-w-0 flex-1 space-y-2.5">
+                  <p className={`text-base sm:text-lg font-semibold text-[#1C1C1C] transition-colors truncate tracking-tight ${isLocked ? "" : "group-hover:text-cvsu-green"}`}>
+                    {quiz.topic}
+                  </p>
                   
-                  <span className="text-stone-500 font-medium font-mono text-xs">
-                    {quiz.question_count} questions
-                  </span>
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${
-                    quiz.time_limit_minutes
-                      ? "border-stone-300 bg-[#F7F7F2] text-stone-600"
-                      : "border-dashed border-stone-200 text-stone-400"
-                  }`}>
-                    {quiz.time_limit_minutes ? `${quiz.time_limit_minutes} min limit` : "Untimed"}
-                  </span>
-                  {quiz.course_code && (
-                    <span className="text-stone-500 font-medium">{quiz.course_code}</span>
-                  )}
-                  {quiz.class_section && (
-                    <span className="text-stone-500 font-medium">Section {quiz.class_section}</span>
-                  )}
-                  {quiz.due_at && (
-                    <span className="text-amber-700 font-semibold">
-                      Due {formatManilaDateTime(quiz.due_at)}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cvsu-light text-cvsu-green font-bold border border-cvsu-green/30">
+                      {FORMAT_ICONS[quiz.quiz_type]}
+                      <span>{quiz.quiz_type}</span>
                     </span>
-                  )}
+                    <span className="inline-flex items-center rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
+                      Verified &amp; Published
+                    </span>
+                    {quiz.is_completed && (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold ${
+                          isLocked
+                            ? "border-stone-300 bg-stone-100 text-stone-700"
+                            : "border-blue-200 bg-blue-50 text-blue-700"
+                        }`}
+                      >
+                        {isLocked
+                          ? "Completed · Locked"
+                          : `Completed · Retake Available (${quiz.attempts_used ?? 1} attempt${(quiz.attempts_used ?? 1) === 1 ? "" : "s"})`}
+                      </span>
+                    )}
+                    
+                    <span className="text-stone-500 font-medium font-mono text-xs">
+                      {quiz.question_count} questions
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${
+                      quiz.question_time_limit_seconds
+                        ? "border-stone-300 bg-[#F7F7F2] text-stone-600"
+                        : "border-dashed border-stone-200 text-stone-400"
+                    }`}>
+                      {quiz.question_time_limit_seconds ? `${quiz.question_time_limit_seconds}s per question` : "Untimed"}
+                    </span>
+                    {quiz.course_code && (
+                      <span className="text-stone-500 font-medium">{quiz.course_code}</span>
+                    )}
+                    {quiz.class_section && (
+                      <span className="text-stone-500 font-medium">Section {quiz.class_section}</span>
+                    )}
+                    {quiz.due_at && (
+                      <span className="text-amber-700 font-semibold">
+                        Due {formatManilaDateTime(quiz.due_at)}
+                      </span>
+                    )}
 
-                  {quiz.created_by_email && (
-                    <span className="text-stone-400 font-mono text-[11px] hidden sm:inline">
-                      • Instructor: {quiz.created_by_email}
-                    </span>
+                    {quiz.created_by_email && (
+                      <span className="text-stone-400 font-mono text-[11px] hidden sm:inline">
+                        • Instructor: {quiz.created_by_email}
+                      </span>
+                    )}
+                  </div>
+                  {isLocked && (
+                    <p className="text-[11px] font-medium text-stone-500">
+                      {!quiz.allow_retakes
+                        ? "Already submitted. Retakes are disabled by your instructor."
+                        : "Maximum number of attempts reached."}
+                    </p>
                   )}
                 </div>
-              </div>
 
-              {/* Action Arrow Box with Spring Glide */}
-              <div className="w-12 h-12 rounded-2xl bg-[#F7F7F2] group-hover:bg-cvsu-dark group-hover:text-white border border-stone-200 group-hover:border-cvsu-dark flex items-center justify-center text-stone-400 transition-all duration-200 shrink-0 shadow-xs group-hover:shadow-sm">
-                <IconArrowRight size={18} className="group-hover:translate-x-1 transition-transform duration-200 ease-out" />
-              </div>
-            </button>
-          ))}
+                {/* Action Arrow Box with Spring Glide */}
+                <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-all duration-200 shrink-0 shadow-xs ${
+                  isLocked
+                    ? "bg-stone-100 border-stone-200 text-stone-400"
+                    : "bg-[#F7F7F2] group-hover:bg-cvsu-dark group-hover:text-white border-stone-200 group-hover:border-cvsu-dark text-stone-400 group-hover:shadow-sm"
+                }`}>
+                  <IconArrowRight size={18} className={isLocked ? "" : "group-hover:translate-x-1 transition-transform duration-200 ease-out"} />
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

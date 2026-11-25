@@ -362,7 +362,7 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         assigned_student_emails=request.assigned_student_emails,
         is_assigned=True,
         review_status="draft",
-        time_limit_minutes=request.time_limit_minutes,
+        question_time_limit_seconds=request.question_time_limit_seconds,
         questions=question_objects 
     )
     db.add(new_quiz)

@@ -52,6 +52,25 @@ function LoginPageContent({ showDevBypass = false }: LoginPageProps) {
   const [error, setError] = useState<string>("");
   const [infoNotice, setInfoNotice] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [googleContainerEl, setGoogleContainerEl] = useState<HTMLDivElement | null>(null);
+  const [googleBtnWidth, setGoogleBtnWidth] = useState<number>(276);
+
+  useEffect(() => {
+    if (!googleContainerEl) return;
+
+    const updateWidth = () => {
+      const measured = Math.floor(googleContainerEl.getBoundingClientRect().width);
+      if (measured > 0) {
+        setGoogleBtnWidth(Math.max(200, Math.min(360, measured)));
+      }
+    };
+
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(googleContainerEl);
+    return () => observer.disconnect();
+  }, [googleContainerEl]);
 
   // If already logged in, route automatically
   useEffect(() => {
@@ -284,7 +303,8 @@ function LoginPageContent({ showDevBypass = false }: LoginPageProps) {
                 </p>
               )}
               <div
-                className={`flex justify-center w-full transition-opacity ${
+                ref={setGoogleContainerEl}
+                className={`flex justify-center w-full max-w-full min-w-0 overflow-hidden transition-opacity ${
                   isFacultyCodeMissing ? "pointer-events-none opacity-50 select-none" : ""
                 }`}
               >
@@ -296,7 +316,8 @@ function LoginPageContent({ showDevBypass = false }: LoginPageProps) {
                   size="large"
                   text={authMode === "signup" ? "signup_with" : "continue_with"}
                   shape="rectangular"
-                  width="360"
+                  width={googleBtnWidth}
+                  containerProps={{ className: "max-w-full overflow-hidden flex justify-center" }}
                 />
               </div>
             </div>

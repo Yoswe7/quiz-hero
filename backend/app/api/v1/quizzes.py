@@ -2,7 +2,7 @@ import json
 import secrets
 import string
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -18,7 +18,7 @@ from app.schemas.quiz import (
     JoinClassroomRequest,
     ClassroomResponse,
 )
-from app.models import User, Classroom, ClassroomMembership, Quiz, QuizSession, Submission
+from app.models import User, Classroom, ClassroomMembership, Quiz, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
 from app.services.quiz_service import (
     validate_source_payload,
@@ -126,7 +126,7 @@ async def publish_quiz_endpoint(
                     "quiz_type": persisted_quiz.quiz_type,
                     "question_count": persisted_quiz.question_count,
                     "review_status": persisted_quiz.review_status,
-                    "time_limit_minutes": persisted_quiz.time_limit_minutes,
+                    "question_time_limit_seconds": persisted_quiz.question_time_limit_seconds,
 
                 "questions": [
                     {
@@ -157,21 +157,65 @@ async def list_quizzes_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     quizzes = await list_quizzes(db)
-    if current_user.role.upper() == "STUDENT":
+    is_student = current_user.role.upper() == "STUDENT"
+    attempt_counts: dict[str, int] = {}
+    members_by_classroom: dict[str, set[str]] = {}
+
+    if is_student:
         class_ids = await get_student_class_ids(db, current_user.email)
         quizzes = [
             q for q in quizzes
             if q.review_status == "published"
             and quiz_is_visible_to_student(q, current_user.email, class_ids)
         ]
+        if quizzes:
+            sub_result = await db.execute(
+                select(Submission.quiz_id, Submission.student_email).where(
+                    Submission.quiz_id.in_([q.id for q in quizzes])
+                )
+            )
+            normalized_user_email = current_user.email.strip().lower()
+            for quiz_id, student_email in sub_result.all():
+                if (student_email or "").strip().lower() == normalized_user_email:
+                    attempt_counts[quiz_id] = attempt_counts.get(quiz_id, 0) + 1
     else:
         quizzes = [
             q for q in quizzes
             if not q.created_by_email
             or q.created_by_email.lower() == current_user.email.lower()
         ]
-    return {
-        "quizzes": [
+        classroom_ids = {q.classroom_id for q in quizzes if q.classroom_id}
+        if classroom_ids:
+            members_result = await db.execute(
+                select(ClassroomMembership.classroom_id, ClassroomMembership.student_email).where(
+                    ClassroomMembership.classroom_id.in_(classroom_ids)
+                )
+            )
+            for cid, email in members_result.all():
+                if email and email.strip():
+                    members_by_classroom.setdefault(cid, set()).add(email.strip().lower())
+
+    serialized_quizzes = []
+    for q in quizzes:
+        direct_assigned = {
+            email.strip().lower()
+            for email in (q.assigned_student_emails or [])
+            if email and email.strip()
+        }
+        class_assigned = members_by_classroom.get(q.classroom_id, set()) if q.classroom_id else set()
+        assigned_count = len(direct_assigned | class_assigned)
+
+        attempts_used = attempt_counts.get(q.id, 0)
+        is_completed = attempts_used > 0
+        retake_locked = is_student and is_completed and (
+            not q.allow_retakes
+            or (
+                q.max_attempts is not None
+                and q.max_attempts > 0
+                and attempts_used >= q.max_attempts
+            )
+        )
+        serialized_quizzes.append(
             {
                 "id": q.id,
                 "topic": q.topic,
@@ -185,14 +229,17 @@ async def list_quizzes_endpoint(
                 "available_from": q.available_from,
                 "due_at": q.due_at,
                 "assigned_student_emails": q.assigned_student_emails or [],
+                "assigned_count": assigned_count,
                 "review_status": q.review_status,
-                "time_limit_minutes": q.time_limit_minutes,
+                "question_time_limit_seconds": q.question_time_limit_seconds,
                 "allow_retakes": q.allow_retakes,
                 "max_attempts": q.max_attempts,
+                "attempts_used": attempts_used,
+                "is_completed": is_completed,
+                "retake_locked": retake_locked,
             }
-            for q in quizzes
-        ]
-    }
+        )
+    return {"quizzes": serialized_quizzes}
 
 
 @router.post("/classrooms", response_model=ClassroomResponse)
@@ -348,25 +395,48 @@ async def get_quiz_endpoint(
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
         raise HTTPException(status_code=404, detail="Assessment not found")
+    attempts_used = 0
+    is_completed = False
+    retake_locked = False
+    lock_reason: str | None = None
+
     if current_user.role.upper() == "STUDENT":
         if quiz.review_status != "published":
             raise HTTPException(status_code=403, detail="This assessment is still under faculty review.")
         class_ids = await get_student_class_ids(db, current_user.email)
         if not quiz_is_visible_to_student(quiz, current_user.email, class_ids):
             raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
-    
-    student_questions = []
-    for q in quiz.questions:
-        options = [opt.option_text for opt in q.options] if getattr(q, 'options', None) else []
-        sq = StudentQuestionRead(
-            id=q.id,
-            question=q.question_text, 
-            options=options, 
-            quiz_type=q.quiz_type,
-            section_name=q.section_name
+
+        sub_result = await db.execute(
+            select(Submission.student_email).where(Submission.quiz_id == quiz.id)
         )
-        student_questions.append(sq)
-        
+        normalized_user_email = current_user.email.strip().lower()
+        attempts_used = sum(
+            1 for email in sub_result.scalars().all()
+            if (email or "").strip().lower() == normalized_user_email
+        )
+        is_completed = attempts_used > 0
+        if is_completed:
+            if not quiz.allow_retakes:
+                retake_locked = True
+                lock_reason = "You have already completed this assessment. Retakes are not allowed."
+            elif quiz.max_attempts is not None and quiz.max_attempts > 0 and attempts_used >= quiz.max_attempts:
+                retake_locked = True
+                lock_reason = "Maximum number of attempts reached for this assessment."
+
+    student_questions = []
+    if not retake_locked:
+        for q in quiz.questions:
+            options = [opt.option_text for opt in q.options] if getattr(q, 'options', None) else []
+            sq = StudentQuestionRead(
+                id=q.id,
+                question=q.question_text,
+                options=options,
+                quiz_type=q.quiz_type,
+                section_name=q.section_name
+            )
+            student_questions.append(sq)
+
     return StudentQuizDetailResponse(
         id=quiz.id,
         topic=quiz.topic,
@@ -378,75 +448,15 @@ async def get_quiz_endpoint(
         class_section=quiz.class_section,
         available_from=quiz.available_from,
         due_at=quiz.due_at,
-        time_limit_minutes=quiz.time_limit_minutes,
+        question_time_limit_seconds=quiz.question_time_limit_seconds,
+        allow_retakes=quiz.allow_retakes,
+        max_attempts=quiz.max_attempts,
+        attempts_used=attempts_used,
+        is_completed=is_completed,
+        retake_locked=retake_locked,
+        lock_reason=lock_reason,
         questions=student_questions,
     )
-
-
-@router.post("/quizzes/{quiz_id}/start")
-async def start_quiz_session_endpoint(
-    quiz_id: str,
-    db: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(require_student),
-):
-    """Student-facing: start/reuse a time-bound quiz session."""
-    quiz = await get_quiz_by_id(db, quiz_id)
-    if not quiz:
-        raise HTTPException(status_code=404, detail="Assessment not found")
-    if quiz.review_status != "published":
-        raise HTTPException(status_code=403, detail="This assessment is still under faculty review.")
-    class_ids = await get_student_class_ids(db, current_user.email)
-    if not quiz_is_visible_to_student(quiz, current_user.email, class_ids):
-        raise HTTPException(status_code=403, detail="This assessment is not currently available to your account.")
-
-    existing_submissions = (await db.execute(
-        select(Submission).where(
-            Submission.quiz_id == quiz.id,
-        )
-    )).scalars().all()
-    student_submissions = [
-        s for s in existing_submissions
-        if (s.student_email or "").strip().lower() == current_user.email.strip().lower()
-    ]
-    existing = student_submissions[-1] if student_submissions else None
-    if student_submissions and not quiz.allow_retakes:
-        raise HTTPException(status_code=403, detail="Retakes are not allowed for this assessment.")
-    if student_submissions and quiz.allow_retakes and quiz.max_attempts is not None and quiz.max_attempts > 0 and len(student_submissions) >= quiz.max_attempts:
-        raise HTTPException(status_code=403, detail="Maximum number of attempts reached for this assessment.")
-
-    now = datetime.now(timezone.utc)
-    if quiz.time_limit_minutes is None:
-        return {
-            "time_limit_minutes": None,
-            "expires_at": None,
-            "server_now": now.isoformat(),
-        }
-
-    session = (await db.execute(
-        select(QuizSession).where(
-            QuizSession.quiz_id == quiz.id,
-            QuizSession.student_email == current_user.email,
-            QuizSession.is_completed.is_(False),
-        ).order_by(QuizSession.id.desc())
-    )).scalar_one_or_none()
-    if session is None:
-        session = QuizSession(
-            quiz_id=quiz.id,
-            student_email=current_user.email,
-            started_at=now,
-            expires_at=now + timedelta(minutes=quiz.time_limit_minutes),
-            is_completed=False,
-        )
-        db.add(session)
-        await db.commit()
-        await db.refresh(session)
-    return {
-        "session_id": session.id,
-        "time_limit_minutes": quiz.time_limit_minutes,
-        "started_at": session.started_at.isoformat() if session.started_at else None,
-        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
-        "server_now": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 @router.get("/quizzes/{quiz_id}/answers")
@@ -526,9 +536,9 @@ async def update_quiz_endpoint(
                 detail="Available From must be earlier than the Deadline.",
             )
 
-    if request.time_limit_minutes is not None and request.time_limit_minutes < 1:
-        raise HTTPException(status_code=422, detail="time_limit_minutes must be at least 1 when provided.")
-    update_time_limit_minutes = "time_limit_minutes" in request.model_fields_set
+    if request.question_time_limit_seconds is not None and request.question_time_limit_seconds < 1:
+        raise HTTPException(status_code=422, detail="question_time_limit_seconds must be at least 1 when provided.")
+    update_question_time_limit_seconds = "question_time_limit_seconds" in request.model_fields_set
 
     updated = await update_quiz(
         db=db,
@@ -543,8 +553,8 @@ async def update_quiz_endpoint(
         update_allow_retakes=update_allow_retakes,
         max_attempts=request.max_attempts if update_max_attempts else None,
         update_max_attempts=update_max_attempts,
-        time_limit_minutes=request.time_limit_minutes if update_time_limit_minutes else None,
-        update_time_limit_minutes=update_time_limit_minutes,
+        question_time_limit_seconds=request.question_time_limit_seconds if update_question_time_limit_seconds else None,
+        update_question_time_limit_seconds=update_question_time_limit_seconds,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Assessment not found")

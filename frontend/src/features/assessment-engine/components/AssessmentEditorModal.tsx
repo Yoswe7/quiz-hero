@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Question, QuizType } from "@/types/quiz";
 import { fetchQuizAnswers, fetchQuizDetail, updateQuiz } from "@/lib/api";
 import { toDateTimeLocalInput } from "@/lib/dateUtils";
+import { validateQuestionTimeLimitSeconds } from "@/lib/quizValidation";
 import { IconTrash, IconPlus, IconCheckCircle, IconEdit } from "@/components/icons";
 
 interface Props {
@@ -24,7 +25,9 @@ export default function AssessmentEditorModal({
   const [topic, setTopic] = useState(initialTopic);
   const [availableFrom, setAvailableFrom] = useState("");
   const [dueAt, setDueAt] = useState("");
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
+  const [questionTimeLimitSeconds, setQuestionTimeLimitSeconds] = useState("");
+  const [timerError, setTimerError] = useState<string | null>(null);
+  const timerInputRef = useRef<HTMLInputElement>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,8 +59,8 @@ export default function AssessmentEditorModal({
               quiz_type: q.quiz_type || "Multiple Choice",
             }))
           );
-          if (detail?.time_limit_minutes !== undefined) {
-            setTimeLimitMinutes(detail.time_limit_minutes === null ? "" : String(detail.time_limit_minutes));
+          if (detail?.question_time_limit_seconds !== undefined) {
+            setQuestionTimeLimitSeconds(detail.question_time_limit_seconds === null ? "" : String(detail.question_time_limit_seconds));
           }
           if (detail?.available_from) {
             setAvailableFrom(toDateTimeLocalInput(detail.available_from));
@@ -226,8 +229,20 @@ export default function AssessmentEditorModal({
       }
     }
 
+    const timerValidation = validateQuestionTimeLimitSeconds(
+      questionTimeLimitSeconds,
+      Boolean(timerInputRef.current?.validity.badInput)
+    );
+    if (!timerValidation.valid) {
+      setTimerError(timerValidation.error);
+      setError(timerValidation.error || "Please enter a valid positive whole number for the question time limit.");
+      timerInputRef.current?.focus();
+      return;
+    }
+
     setIsSaving(true);
     setError("");
+    setTimerError(null);
 
     try {
       await updateQuiz(quizId, {
@@ -235,7 +250,7 @@ export default function AssessmentEditorModal({
         questions,
         available_from: availableFrom ? new Date(availableFrom).toISOString() : null,
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
-        time_limit_minutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
+        question_time_limit_seconds: timerValidation.value,
       });
 
       // Instantly invalidate TanStack Query caches so previews and student views reflect changes immediately
@@ -344,17 +359,71 @@ export default function AssessmentEditorModal({
 
               {/* Time Limit */}
               <div className="p-5 bg-white rounded-2xl border border-stone-200 shadow-xs space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-cvsu-dark block">
-                  Time Limit (Minutes)
+                <label
+                  htmlFor="edit-question-time-limit"
+                  className="text-xs font-bold uppercase tracking-wider text-cvsu-dark block"
+                >
+                  Time Limit per Question (Seconds)
                 </label>
+                <p id="edit-question-time-limit-hint" className="text-xs text-stone-500">
+                  Enter a positive whole number of seconds (1 or more), or leave blank for untimed.
+                </p>
                 <input
-                  type="number"
-                  min={1}
-                  value={timeLimitMinutes}
-                  onChange={(e) => setTimeLimitMinutes(e.target.value)}
+                  ref={timerInputRef}
+                  id="edit-question-time-limit"
+                  name="question_time_limit_seconds"
+                  type="text"
+                  inputMode="numeric"
+                  value={questionTimeLimitSeconds}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setQuestionTimeLimitSeconds(next);
+                    const check = validateQuestionTimeLimitSeconds(next, e.target.validity.badInput);
+                    setTimerError(check.valid ? null : check.error);
+                    if (
+                      check.valid &&
+                      error &&
+                      (error === timerError ||
+                        error.startsWith("Error: Time limit") ||
+                        error.startsWith("Error: Enter a whole number"))
+                    ) {
+                      setError("");
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const check = validateQuestionTimeLimitSeconds(
+                      e.currentTarget.value,
+                      e.currentTarget.validity.badInput
+                    );
+                    setTimerError(check.valid ? null : check.error);
+                    if (
+                      check.valid &&
+                      error &&
+                      (error === timerError ||
+                        error.startsWith("Error: Time limit") ||
+                        error.startsWith("Error: Enter a whole number"))
+                    ) {
+                      setError("");
+                    }
+                  }}
+                  aria-invalid={timerError ? "true" : "false"}
+                  aria-describedby={
+                    timerError
+                      ? "edit-question-time-limit-hint edit-question-time-limit-error"
+                      : "edit-question-time-limit-hint"
+                  }
                   placeholder="No time limit"
-                  className="w-full px-4 py-2.5 text-sm font-semibold text-[#1C1C1C] bg-[#F7F7F2] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cvsu-green focus:bg-white transition-all"
+                  className={`w-full px-4 py-2.5 text-sm font-semibold text-[#1C1C1C] bg-[#F7F7F2] border rounded-xl focus:outline-none focus:ring-2 focus:bg-white transition-all ${
+                    timerError
+                      ? "border-red-400 bg-red-50/40 focus:ring-red-500/20"
+                      : "border-stone-300 focus:ring-cvsu-green"
+                  }`}
                 />
+                {timerError && (
+                  <p id="edit-question-time-limit-error" className="text-xs font-semibold text-red-600">
+                    {timerError}
+                  </p>
+                )}
               </div>
 
               {/* Assessment Schedule & Deadlines */}

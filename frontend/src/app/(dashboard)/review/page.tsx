@@ -83,8 +83,57 @@ export default function ReviewPage() {
       const updatedItem = await submitReview(item.id, quality);
       setLastScheduled(updatedItem.next_review_at);
       setRecall("");
-      if (index + 1 >= items.length) await loadItems();
-      else setIndex((current) => current + 1);
+
+      setProgress((current) => {
+        if (!current) return current;
+        const isScheduledFuture =
+          Boolean(updatedItem.next_review_at) &&
+          Boolean(updatedItem.last_reviewed_at) &&
+          new Date(updatedItem.next_review_at as string).getTime() >
+            new Date(updatedItem.last_reviewed_at as string).getTime();
+        const dueDelta = isScheduledFuture ? -1 : 0;
+        const reviewedDelta =
+          item.last_reviewed_at === null && updatedItem.last_reviewed_at !== null ? 1 : 0;
+        const wasMastered = item.repetitions >= 3;
+        const isMastered = updatedItem.repetitions >= 3;
+        const masteredDelta = (isMastered ? 1 : 0) - (wasMastered ? 1 : 0);
+
+        const nextTotal = current.srs.total_items;
+        const nextDue = Math.max(0, current.srs.due_reviews + dueDelta);
+        const nextReviewed = Math.min(
+          nextTotal,
+          Math.max(0, current.srs.reviewed_items + reviewedDelta)
+        );
+        const nextMastered = Math.min(
+          nextTotal,
+          Math.max(0, current.srs.mastered_items + masteredDelta)
+        );
+        const nextRetention =
+          nextTotal > 0 ? Math.round((nextMastered / nextTotal) * 1000) / 10 : 0;
+
+        return {
+          ...current,
+          srs: {
+            ...current.srs,
+            due_reviews: nextDue,
+            reviewed_items: nextReviewed,
+            mastered_items: nextMastered,
+            retention_percentage: nextRetention,
+          },
+        };
+      });
+
+      if (index + 1 >= items.length) {
+        await loadItems();
+      } else {
+        try {
+          const freshProgress = await fetchStudentProgress();
+          setProgress(freshProgress);
+        } catch {
+          // Keep optimistic KPI counts if background refresh fails transiently
+        }
+        setIndex((current) => current + 1);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save review.");
     } finally {

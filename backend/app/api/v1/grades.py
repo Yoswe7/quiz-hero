@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.schemas.quiz import QuizSubmissionRequest
-from app.models import QuizSession, ReviewItem, Submission, User
+from app.models import ReviewItem, Submission, User
 from app.api.dependencies import get_db_session, get_current_user, require_teacher
 from app.crud.crud_submission import create_submission, get_submissions_by_role, delete_submission, get_submission_by_id
 from app.crud.crud_quiz import get_quiz_by_id, quiz_is_visible_to_student, get_student_class_ids
@@ -74,37 +74,6 @@ async def submit_quiz(
         ):
             raise HTTPException(status_code=403, detail="Maximum number of attempts reached for this assessment.")
 
-    session = (
-        await db.execute(
-            select(QuizSession)
-            .where(
-                QuizSession.quiz_id == official_quiz.id,
-                QuizSession.student_email == current_user.email,
-                QuizSession.is_completed.is_(False),
-            )
-            .order_by(QuizSession.id.desc())
-        )
-    ).scalar_one_or_none()
-    timed_out = False
-    if official_quiz.time_limit_minutes is not None:
-        # Enforce server-side session existence for timed quizzes.
-        if session is None:
-            raise HTTPException(
-                status_code=403,
-                detail="Quiz session not started. Start the assessment before submitting.",
-            )
-        now = datetime.now(timezone.utc)
-        expires_at = _as_utc(session.expires_at)
-        grace = timedelta(seconds=10)
-        if expires_at is not None and now > expires_at + grace:
-            raise HTTPException(
-                status_code=403,
-                detail="Submission exceeded the time limit.",
-            )
-        if expires_at is not None and now > expires_at:
-            timed_out = True
-        session.is_completed = True
-
     official_questions = official_quiz.questions or []
     total_q = len(official_questions)
     if total_q <= 0:
@@ -137,6 +106,9 @@ async def submit_quiz(
         if q_type in ("Multiple Choice", "True or False"):
             is_corr = user_ans.strip().lower() == correct_ans.strip().lower()
             feedback = "Correct choice verified." if is_corr else f"Correct: {correct_ans}"
+        elif not user_ans:
+            is_corr = False
+            feedback = "No answer submitted."
         elif q_type == "Identification":
             is_corr = user_ans.strip().lower() == correct_ans.strip().lower()
             if not is_corr:
@@ -172,8 +144,6 @@ async def submit_quiz(
         raw_score=calculated_score,
         total_questions=total_q,
         percentage=percentage,
-        started_at=session.started_at if session else None,
-        timed_out=timed_out,
         answers=verified_answers
     )
     
@@ -321,7 +291,12 @@ async def get_grades(
     # stored uppercase and returned as-is by require_teacher, so teachers would
     # silently fall into the student-only branch. Normalize at the boundary.
     submissions = await get_submissions_by_role(db, (current_user.role or "").lower(), current_user.email)
-    return {"submissions": submissions}
+    return {
+        "submissions": [
+            {**sub.model_dump(), "final_score": sub.final_score}
+            for sub in submissions
+        ]
+    }
 
 
 @router.delete("/grades/{submission_id}")

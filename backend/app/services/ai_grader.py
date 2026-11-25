@@ -18,6 +18,13 @@ async def grade_open_answer(question: str, correct_answer: str, user_answer: str
     norm_user = normalize_string(user_answer)
     norm_correct = normalize_string(correct_answer)
 
+    if not user_answer or not user_answer.strip() or not norm_user:
+        return {
+            "is_correct": False,
+            "feedback": "No answer submitted.",
+            "score": 0,
+        }
+
     if norm_user == norm_correct:
         return {
             "is_correct": True,
@@ -61,7 +68,9 @@ Respond ONLY with a JSON object:
         result = await generate_structured(prompt, schema, task="grading")
         return result.model_dump()
     except Exception:
-        is_close = normalize_string(user_answer) in normalize_string(correct_answer) or normalize_string(correct_answer) in normalize_string(user_answer)
+        is_close = bool(
+            norm_user and norm_correct and (norm_user in norm_correct or norm_correct in norm_user)
+        )
         return {
             "is_correct": is_close,
             "feedback": "Automated evaluation processed.",

@@ -56,12 +56,18 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
     }
   }, [isOpen]);
 
+  const messageSeqRef = useRef(0);
+  const nextMessageId = (prefix: string) => {
+    messageSeqRef.current += 1;
+    return `${prefix}-${messageSeqRef.current}`;
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
     if (!text || isLoading) return;
 
     const userMsg: Message = {
-      id: `user-${Date.now()}`,
+      id: nextMessageId("user"),
       role: "user",
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -95,7 +101,7 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
       );
 
       const aiMsg: Message = {
-        id: `ai-${Date.now()}`,
+        id: nextMessageId("ai"),
         role: "model",
         content: replyText,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -111,7 +117,7 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
         ? err.message
         : "I encountered an issue connecting to the AI service. Please try again.";
       const errorMsg: Message = {
-        id: `err-${Date.now()}`,
+        id: nextMessageId("err"),
         role: "model",
         content: errorMessage,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -129,7 +135,7 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
     setMessages((prev) => [
       ...prev,
       {
-        id: `stopped-${Date.now()}`,
+        id: nextMessageId("stopped"),
         role: "model",
         content: "Response stopped.",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -147,7 +153,7 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
   const handleClearChat = () => {
     setMessages([
       {
-        id: `welcome-${Date.now()}`,
+        id: nextMessageId("welcome"),
         role: "model",
         content: `Chat history cleared. How can I help you with your subjects at CvSU Imus today?`,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -155,26 +161,280 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
     ]);
   };
 
-  // Helper to format simple markdown (bold, lists, code)
-  const renderFormattedText = (text: string) => {
-    const lines = text.split("\n");
-    return lines.map((line, idx) => {
-      let formatted = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-      
-      if (formatted.trim().startsWith("- ") || formatted.trim().startsWith("* ")) {
+  const renderInlineMarkdown = (input: string) => {
+    const tokenPattern =
+      /(`[^`\n]+`|\[[^\]\n]+\]\((?:https?:\/\/[^\s)]+|\/[^\s)]*)\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
+    const parts = input.split(tokenPattern);
+
+    return parts.map((part, idx) => {
+      if (!part) return null;
+      if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
         return (
-          <p key={idx} className="ml-3 my-1 flex items-start gap-1.5" dangerouslySetInnerHTML={{ __html: `• ${formatted.trim().substring(2)}` }} />
+          <code
+            key={idx}
+            className="rounded bg-slate-500/15 px-1 py-0.5 font-mono text-[11px]"
+          >
+            {part.slice(1, -1)}
+          </code>
         );
       }
-
-      return (
-        <p key={idx} className={line === "" ? "h-2" : "my-0.5"} dangerouslySetInnerHTML={{ __html: formatted }} />
-      );
+      if (part.startsWith("[")) {
+        const linkMatch = /^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)$/.exec(part);
+        if (linkMatch) {
+          const [, label, href] = linkMatch;
+          const isExternal = !href.startsWith("/");
+          return (
+            <a
+              key={idx}
+              href={href}
+              target={isExternal ? "_blank" : undefined}
+              rel={isExternal ? "noopener noreferrer" : undefined}
+              className="font-semibold underline decoration-current/40 hover:decoration-current"
+            >
+              {label}
+            </a>
+          );
+        }
+      }
+      if (part.startsWith("***") && part.endsWith("***") && part.length > 6) {
+        return (
+          <strong key={idx} className="font-bold italic">
+            {part.slice(3, -3)}
+          </strong>
+        );
+      }
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        return (
+          <strong key={idx} className="font-bold">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+        return <em key={idx}>{part.slice(1, -1)}</em>;
+      }
+      return <span key={idx}>{part}</span>;
     });
   };
 
+  const renderFormattedText = (text: string) => {
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    type MarkdownBlock = ReturnType<typeof renderInlineMarkdown>[number];
+    const nodes: MarkdownBlock[] = [];
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
+
+    const parseTableCells = (line: string) => {
+      const stripped = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+      return stripped.split("|").map((cell) => cell.trim());
+    };
+
+    const unorderedRe = /^(\s*)[-*+]\s+(.*)$/;
+    const orderedRe = /^(\s*)\d+[.)]\s+(.*)$/;
+    const headingRe = /^(#{1,4})\s+(.*)$/;
+    const hrRe = /^(?:---+|___+|\*\*\*+)$/;
+
+    let i = 0;
+    while (i < lines.length) {
+      const rawLine = lines[i];
+      const trimmed = rawLine.trim();
+
+      if (!trimmed) {
+        i += 1;
+        continue;
+      }
+
+      if (trimmed.startsWith("```")) {
+        const codeLines: string[] = [];
+        i += 1;
+        while (i < lines.length && !lines[i].trim().startsWith("```")) {
+          codeLines.push(lines[i]);
+          i += 1;
+        }
+        if (i < lines.length) i += 1;
+        nodes.push(
+          <pre
+            key={`code-${i}`}
+            className="my-1.5 overflow-x-auto rounded-lg bg-slate-900 p-2.5 font-mono text-[11px] leading-relaxed text-slate-100"
+          >
+            <code>{codeLines.join("\n")}</code>
+          </pre>
+        );
+        continue;
+      }
+
+      const headingMatch = headingRe.exec(trimmed);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        nodes.push(
+          <div
+            key={`h-${i}`}
+            className={
+              level <= 2
+                ? "mt-2 text-[13px] font-bold leading-snug"
+                : "mt-1.5 text-xs font-bold leading-snug"
+            }
+          >
+            {renderInlineMarkdown(headingMatch[2])}
+          </div>
+        );
+        i += 1;
+        continue;
+      }
+
+      if (hrRe.test(trimmed)) {
+        nodes.push(<hr key={`hr-${i}`} className="my-2 border-current/15" />);
+        i += 1;
+        continue;
+      }
+
+      if (trimmed.startsWith(">")) {
+        const quoteLines: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith(">")) {
+          quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
+          i += 1;
+        }
+        nodes.push(
+          <blockquote
+            key={`q-${i}`}
+            className="my-1.5 space-y-1 border-l-2 border-current/35 pl-2.5 italic opacity-85"
+          >
+            {quoteLines.map((qLine, qIdx) => (
+              <p key={qIdx} className="leading-relaxed">
+                {renderInlineMarkdown(qLine)}
+              </p>
+            ))}
+          </blockquote>
+        );
+        continue;
+      }
+
+      if (rawLine.includes("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+        const headers = parseTableCells(rawLine);
+        const startIdx = i;
+        i += 2;
+        const rows: string[][] = [];
+        while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+          rows.push(parseTableCells(lines[i]));
+          i += 1;
+        }
+        nodes.push(
+          <div
+            key={`tbl-${startIdx}`}
+            className="my-1.5 overflow-x-auto rounded-lg border border-current/20"
+          >
+            <table className="w-full border-collapse text-left text-[11px]">
+              <thead className="bg-slate-500/10 font-bold">
+                <tr>
+                  {headers.map((header, hIdx) => (
+                    <th key={hIdx} className="border-b border-current/20 px-2 py-1">
+                      {renderInlineMarkdown(header)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rIdx) => (
+                  <tr key={rIdx} className="border-b border-current/10 last:border-b-0">
+                    {headers.map((_, cIdx) => (
+                      <td key={cIdx} className="px-2 py-1 align-top">
+                        {renderInlineMarkdown(row[cIdx] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
+
+      if (unorderedRe.test(rawLine)) {
+        const listStart = i;
+        const items: { indent: number; content: string }[] = [];
+        while (i < lines.length) {
+          const match = unorderedRe.exec(lines[i]);
+          if (!match) break;
+          items.push({ indent: match[1].length, content: match[2] });
+          i += 1;
+        }
+        nodes.push(
+          <ul key={`ul-${listStart}`} className="my-1 list-disc space-y-1 pl-4">
+            {items.map((item, itemIdx) => (
+              <li
+                key={itemIdx}
+                className={item.indent >= 2 ? "ml-3 leading-relaxed" : "leading-relaxed"}
+              >
+                {renderInlineMarkdown(item.content)}
+              </li>
+            ))}
+          </ul>
+        );
+        continue;
+      }
+
+      if (orderedRe.test(rawLine)) {
+        const listStart = i;
+        const items: { indent: number; content: string }[] = [];
+        while (i < lines.length) {
+          const match = orderedRe.exec(lines[i]);
+          if (!match) break;
+          items.push({ indent: match[1].length, content: match[2] });
+          i += 1;
+        }
+        nodes.push(
+          <ol key={`ol-${listStart}`} className="my-1 list-decimal space-y-1 pl-4">
+            {items.map((item, itemIdx) => (
+              <li
+                key={itemIdx}
+                className={item.indent >= 2 ? "ml-3 leading-relaxed" : "leading-relaxed"}
+              >
+                {renderInlineMarkdown(item.content)}
+              </li>
+            ))}
+          </ol>
+        );
+        continue;
+      }
+
+      const paraStart = i;
+      const paraLines: string[] = [];
+      while (i < lines.length) {
+        const cur = lines[i];
+        const curTrimmed = cur.trim();
+        if (
+          !curTrimmed ||
+          curTrimmed.startsWith("```") ||
+          headingRe.test(curTrimmed) ||
+          hrRe.test(curTrimmed) ||
+          curTrimmed.startsWith(">") ||
+          unorderedRe.test(cur) ||
+          orderedRe.test(cur) ||
+          (cur.includes("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
+        ) {
+          break;
+        }
+        paraLines.push(cur);
+        i += 1;
+      }
+      nodes.push(
+        <p key={`p-${paraStart}`} className="leading-relaxed">
+          {paraLines.map((pLine, pIdx) => (
+            <span key={pIdx} className={pIdx > 0 ? "block mt-0.5" : undefined}>
+              {renderInlineMarkdown(pLine)}
+            </span>
+          ))}
+        </p>
+      );
+    }
+
+    return <div className="space-y-1.5">{nodes}</div>;
+  };
+
   return (
-    <div className="fixed bottom-5 right-5 z-50">
+    <div className={`fixed bottom-5 right-5 ${isOpen ? "z-50" : "z-30"}`}>
       
       {/* Floating Toggle Button */}
       {!isOpen && (
@@ -233,7 +493,9 @@ export default function AIChatbot({ currentUser, activeTopic }: Props) {
                     </span>
                   </div>
                   <p className="text-[10px] text-white/70">
-                    {currentUser ? `${currentUser.full_name} (${currentUser.role === 'teacher' ? 'Faculty' : 'Student'})` : 'Cavite State University – Imus'}
+                    {currentUser
+                      ? `${currentUser.full_name} (${currentUser.role?.toLowerCase() === "teacher" ? "Faculty" : "Student"})`
+                      : "Cavite State University – Imus"}
                   </p>
                 </div>
               </div>

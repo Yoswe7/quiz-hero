@@ -42,6 +42,9 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
     );
   });
 
+  const getFinalScore = (g: GradeSubmission) =>
+    g.final_score ?? g.adjusted_score ?? g.raw_score ?? g.score;
+
   const exportToCSV = () => {
     if (grades.length === 0) return;
 
@@ -52,7 +55,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
       sanitizeField(g.student_name || "Student"),
       sanitizeField(g.student_email || ""),
       sanitizeField(g.topic || "Assessment"),
-      g.score,
+      getFinalScore(g),
       g.total_questions,
       g.percentage,
       sanitizeField(g.created_at || new Date().toISOString()),
@@ -160,47 +163,52 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
         </div>
       ) : role === "teacher" ? (
         <div className="border border-stone-200 rounded-3xl overflow-hidden shadow-xs bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div
+            tabIndex={0}
+            role="region"
+            aria-labelledby="gradebook-table-caption"
+            className="overflow-x-auto focus:outline-none focus:ring-2 focus:ring-cvsu-green/40"
+          >
+            <table className="w-full text-left text-xs border-separate border-spacing-0">
+              <caption id="gradebook-table-caption" className="sr-only">
+                Faculty gradebook student submissions
+              </caption>
               <thead className="bg-cvsu-green text-white font-bold uppercase tracking-wider">
                 <tr>
-                  <th className="py-4 px-5">Student</th>
-                  <th className="py-4 px-5">Institutional Email</th>
-                  <th className="py-4 px-5">Topic</th>
-                  <th className="py-4 px-5 text-center">Score</th>
-                  <th className="py-4 px-5 text-right">Rating</th>
-                  <th className="py-4 px-5 text-center">Action</th>
+                  <th scope="col" className="py-4 px-5 sticky left-0 z-10 bg-cvsu-green">Student</th>
+                  <th scope="col" className="py-4 px-5">Institutional Email</th>
+                  <th scope="col" className="py-4 px-5">Topic</th>
+                  <th scope="col" className="py-4 px-5 text-center">Score</th>
+                  <th scope="col" className="py-4 px-5 text-center">Status</th>
+                  <th scope="col" className="py-4 px-5 text-right">Rating</th>
+                  <th scope="col" className="py-4 px-5 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 text-stone-800">
                 {filteredGrades.map((g, idx) => (
                   <tr key={g.id ?? idx} className="hover:bg-[#F7F7F2] transition-colors group">
-                    <td className="py-3.5 px-5 font-bold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors">{g.student_name}</td>
-                    <td className="py-3.5 px-5 font-mono text-stone-500 text-[11px]">
+                    <th scope="row" className="py-3.5 px-5 font-bold text-[#1C1C1C] group-hover:text-cvsu-green transition-colors sticky left-0 z-10 bg-white group-hover:bg-[#F7F7F2] text-left whitespace-nowrap">
+                      {g.student_name}
+                    </th>
+                    <td className="py-3.5 px-5 font-mono text-stone-500 text-[11px] whitespace-nowrap">
                       {g.student_email || "—"}
                     </td>
                     <td className="py-3.5 px-5 text-stone-700 max-w-xs truncate font-medium">{g.topic}</td>
-                    <td className="py-3.5 px-5 text-center font-mono font-bold text-[#1C1C1C]">
-                      {g.final_score} / {g.total_questions}
+                    <td className="py-3.5 px-5 text-center font-mono font-bold text-[#1C1C1C] whitespace-nowrap">
+                      {getFinalScore(g)} / {g.total_questions}
                     </td>
-                    {g.is_verified && (
-                      <td className="py-3.5 px-5 text-center">
-                        <span
-                          className="inline-flex items-center rounded-full bg-green-100 text-green-800 text-xs font-bold px-2 py-1"
-                        >
+                    <td className="py-3.5 px-5 text-center whitespace-nowrap">
+                      {g.is_verified ? (
+                        <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 text-xs font-bold px-2 py-1">
                           Verified by Faculty
                         </span>
-                      </td>
-                    ) || (
-                      <td className="py-3.5 px-5 text-center">
-                        <span
-                          className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1"
-                        >
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1">
                           Pending Verification
                         </span>
-                      </td>
-                    )}
-                    <td className="py-3.5 px-5 text-right">
+                      )}
+                    </td>
+                    <td className="py-3.5 px-5 text-right whitespace-nowrap">
                       <span
                         className={`inline-block font-mono font-bold px-3 py-1 rounded-full border text-[11px] ${
                           g.percentage >= 75
@@ -213,7 +221,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
                         {g.percentage}%
                       </span>
                     </td>
-                    <td className="py-3.5 px-5 text-center">
+                    <td className="py-3.5 px-5 text-center whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => setSelectedSubmission(g)}
@@ -301,7 +309,7 @@ export default function Gradebook({ role, studentName, studentEmail, onBack }: P
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm font-mono font-bold px-3 py-1 rounded-full bg-cvsu-vibrant text-cvsu-dark">
-                  {selectedSubmission.score}/{selectedSubmission.total_questions} ({selectedSubmission.percentage}%)
+                  {getFinalScore(selectedSubmission)}/{selectedSubmission.total_questions} ({selectedSubmission.percentage}%)
                 </span>
                 <button
                   type="button"

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
 import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, type PreparedMaterial } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
+import { validateQuestionTimeLimitSeconds } from "@/lib/quizValidation";
 import {
   IconList,
   IconToggle,
@@ -26,6 +27,30 @@ import AIChatbot from "@/components/shared/AIChatbot"; // Adjusted as per instru
 import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
 import AssessmentEditorModal from "@/features/assessment-engine/components/AssessmentEditorModal";
 import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
+
+interface QuizAttemptAnswer {
+  question: string;
+  user_answer: string;
+  correct_answer: string;
+  is_correct: boolean;
+  is_overridden: boolean;
+  awarded_points: number;
+}
+
+interface QuizAttemptItem {
+  attempt_id: number;
+  student_email: string;
+  student_name: string;
+  raw_score: number;
+  adjusted_score: number | null;
+  final_score: number;
+  total_items: number;
+  is_verified: boolean;
+  faculty_remarks: string | null;
+  reviewed_at: string | null;
+  reviewed_by: number | null;
+  answers: QuizAttemptAnswer[];
+}
 
 interface Props {
   currentUser?: CvSUUser;
@@ -108,7 +133,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [idCount, setIdCount] = useState(0);
   const [openCount, setOpenCount] = useState(10);
   const [allowRetakes, setAllowRetakes] = useState(false);
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState("");
+  const [questionTimeLimitSeconds, setQuestionTimeLimitSeconds] = useState("");
+  const [timerError, setTimerError] = useState<string | null>(null);
+  const timerInputRef = useRef<HTMLInputElement>(null);
 
   const totalMixedCount = mcCount + tfCount + idCount + openCount;
   
@@ -186,10 +213,10 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const draftCompletedRef = useRef(false);
   const [facultyRemarks, setFacultyRemarks] = useState("");
   const [showSubmissionDrawer, setShowSubmissionDrawer] = useState(false);
-  const [selectedAttempt, setSelectedAttempt] = useState<
-    | { submissionId: number; attemptData: any }
-    | null
-  >(null);
+  const [drawerQuiz, setDrawerQuiz] = useState<{ id: string; topic: string } | null>(null);
+  const [drawerAttempts, setDrawerAttempts] = useState<QuizAttemptItem[]>([]);
+  const [selectedAttempt, setSelectedAttempt] = useState<QuizAttemptItem | null>(null);
+  const [isSavingGrade, setIsSavingGrade] = useState(false);
 
   useEffect(() => {
     if (view !== "generate" || draftCompletedRef.current) return;
@@ -375,6 +402,19 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         }
       }
 
+      const timerValidation = validateQuestionTimeLimitSeconds(
+        questionTimeLimitSeconds,
+        Boolean(timerInputRef.current?.validity.badInput)
+      );
+      if (!timerValidation.valid) {
+        setTimerError(timerValidation.error);
+        setError(timerValidation.error || "Please enter a valid positive whole number for the question time limit.");
+        setIsLoading(false);
+        timerInputRef.current?.focus();
+        return;
+      }
+      setTimerError(null);
+
       const payload = {
         topic: effectiveTopic,
         question_count: effectiveCount,
@@ -394,7 +434,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         available_from: availableFrom ? new Date(availableFrom).toISOString() : undefined,
         due_at: dueAt ? new Date(dueAt).toISOString() : undefined,
         assigned_student_emails: assignedEmails,
-        time_limit_minutes: timeLimitMinutes.trim() ? Number(timeLimitMinutes) : null,
+        question_time_limit_seconds: timerValidation.value,
       };
 
       const result = await publishQuiz(payload);
@@ -411,7 +451,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       // Reset inputs
       setTopic("");
       setNotesText("");
-      setTimeLimitMinutes("");
+      setQuestionTimeLimitSeconds("");
+      setTimerError(null);
       handleClearFile();
       loadQuizzes();
     } catch (err) {
@@ -481,37 +522,44 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     }
   };
 
-  const openSubmissionDrawer = async (quizId: string) => {
+  const openSubmissionDrawer = async (quizId: string, quizTopic: string) => {
+    setAssignmentError("");
+    setDrawerQuiz({ id: quizId, topic: quizTopic });
     try {
       const data = await fetchQuizAttempts(quizId);
-      const first = data.attempts?.[0];
-      if (first) {
-        setSelectedAttempt({ submissionId: first.attempt_id, attemptData: first });
-      } else {
-        setSelectedAttempt(null);
-      }
+      const attempts = data.attempts || [];
+      const first = attempts[0] ?? null;
+      setDrawerAttempts(attempts);
+      setSelectedAttempt(first);
+      setFacultyRemarks(first?.faculty_remarks || "");
       setShowSubmissionDrawer(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to load submissions.");
+      setDrawerAttempts([]);
+      setSelectedAttempt(null);
+      setAssignmentError(err instanceof Error ? err.message : "Failed to load submissions.");
     }
   };
 
   const saveAttemptGrade = async () => {
     if (!selectedAttempt) return;
-    const { submissionId, attemptData } = selectedAttempt;
+    setIsSavingGrade(true);
     try {
-      const overrides = (attemptData?.answers || []).map((ans: any, idx: number) => ({
+      const overrides = (selectedAttempt.answers || []).map((ans, idx) => ({
         answer_index: idx,
         is_overridden: Boolean(ans.is_overridden),
         awarded_points: Number(ans.awarded_points ?? (ans.is_correct ? 1 : 0)),
       }));
-      await gradeFacultyAttempt(submissionId, overrides, undefined, facultyRemarks, true);
+      await gradeFacultyAttempt(selectedAttempt.attempt_id, overrides, undefined, facultyRemarks, true);
       setShowSubmissionDrawer(false);
+      setDrawerQuiz(null);
+      setDrawerAttempts([]);
       setSelectedAttempt(null);
       setFacultyRemarks("");
       loadQuizzes();
     } catch (err) {
       setAssignmentError(err instanceof Error ? err.message : "Failed to save grade.");
+    } finally {
+      setIsSavingGrade(false);
     }
   };
 
@@ -594,8 +642,15 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                       {quiz.review_status === "published" ? "Verified & Published" : "Pending Review"}
                     </span>
                     <span className="font-mono text-xs text-stone-500">{quiz.question_count} Questions</span>
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
+                      quiz.question_time_limit_seconds
+                        ? "border-stone-300 bg-[#F7F7F2] text-stone-600"
+                        : "border-dashed border-stone-200 text-stone-400"
+                    }`}>
+                      {quiz.question_time_limit_seconds ? `${quiz.question_time_limit_seconds}s per question` : "Untimed"}
+                    </span>
                     <span className="font-mono text-xs text-stone-500">
-                      {quiz.assigned_student_emails?.length ?? 0} assigned
+                      {quiz.assigned_count ?? quiz.assigned_student_emails?.length ?? 0} assigned
                     </span>
                     {quiz.due_at && (
                       <span className="font-mono text-xs font-semibold text-amber-700">
@@ -779,120 +834,173 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
   return (
     <div className="view-transition space-y-8">
-      {showSubmissionDrawer && selectedAttempt && (
+      {showSubmissionDrawer && drawerQuiz && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 sm:p-6"
           role="dialog"
           aria-modal="true"
+          aria-labelledby="submission-drawer-title"
         >
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
-            <div className="p-6 border-b border-stone-200 bg-cvsu-dark text-white">
-              <h3 className="font-syne text-lg">
-                Submissions & Grading - {selectedAttempt?.attemptData?.topic || "Assessment"}
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="relative p-6 pr-14 border-b border-stone-200 bg-cvsu-dark text-white shrink-0">
+              <h3 id="submission-drawer-title" className="font-syne text-lg truncate">
+                Submissions &amp; Grading — {drawerQuiz.topic}
               </h3>
+              {selectedAttempt && (
+                <p className="text-xs text-white/75 mt-1">
+                  {selectedAttempt.student_name} ({selectedAttempt.student_email})
+                </p>
+              )}
               <button
                 type="button"
+                aria-label="Close submissions dialog"
                 onClick={() => setShowSubmissionDrawer(false)}
-                className="absolute right-4 top-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center text-xs"
+                className="absolute right-4 top-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center text-xs cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-6 flex-1 overflow-y-auto">
-              <div className="space-y-4">
-                {selectedAttempt?.attemptData?.answers?.length
-                  ? selectedAttempt.attemptData.answers.map(
-                      (item: any, idx: number) => (
-                        <div
-                          key={idx}
-                          className={`p-4 rounded-2xl border text-xs space-y-2 transition-all ${item.is_correct ? "bg-white border-stone-200" : "bg-red-50/50 border-red-200"}`}
-                        >
-                          <div className="flex items-start gap-2.5 font-bold text-[#1C1C1C]">
-                            {item.is_correct ? (
-                              <svg
-                                width={18}
-                                height={18}
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.75"
-                                className="text-cvsu-green shrink-0 mt-0.5"
-                              >
-                                <path d="M12 3l9 9-3 9-9-3 9-9z" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width={18}
-                                height={18}
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.75"
-                                className="text-red-600 shrink-0 mt-0.5"
-                              >
-                                <path d="M18 6L6 18M6 6l12 12" />
-                              </svg>
-                            )}
-                            <span>{idx + 1}. {item.question}</span>
-                          </div>
+            {drawerAttempts.length > 1 && (
+              <div className="px-6 py-3 bg-[#F7F7F2] border-b border-stone-200 flex flex-wrap gap-2 shrink-0">
+                {drawerAttempts.map((attempt) => {
+                  const isCurrent = selectedAttempt?.attempt_id === attempt.attempt_id;
+                  return (
+                    <button
+                      key={attempt.attempt_id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAttempt(attempt);
+                        setFacultyRemarks(attempt.faculty_remarks || "");
+                      }}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
+                        isCurrent
+                          ? "bg-cvsu-green text-white border-cvsu-green"
+                          : "bg-white text-stone-700 border-stone-300 hover:border-cvsu-green"
+                      }`}
+                    >
+                      {attempt.student_name} ({attempt.final_score}/{attempt.total_items})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                          <div className="pl-6 space-y-1">
-                            <p className="text-stone-600">
-                              Submitted Answer: <span className="font-bold text-[#1C1C1C]">
-                                {item.user_answer || "—"}
-                              </span>
-                            </p>
-                            <p className="text-stone-500">
-                              Correct Model Answer: <span className="font-bold">
-                                {item.correct_answer}
-                              </span>
-                            </p>
-                            <p className="text-stone-500">
-                              Faculty Override: <span className="font-bold text-cvsu-green">
-                                is_overridden={item.is_overridden}, awarded_points={item.awarded_points}
-                              </span>
-                            </p>
-                          </div>
+            <div className="p-6 flex-1 overflow-y-auto">
+              {!selectedAttempt ? (
+                <div className="py-10 text-center space-y-4">
+                  <p className="text-sm font-semibold text-stone-700">
+                    No student submissions recorded yet for this assessment.
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Once students complete this assessment, their responses will appear here for grading and verification.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSubmissionDrawer(false);
+                      onViewGrades();
+                    }}
+                    className="px-5 py-2 rounded-full bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Open Full Gradebook
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {selectedAttempt.answers?.length ? (
+                    selectedAttempt.answers.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className={`p-4 rounded-2xl border text-xs space-y-2 transition-all ${
+                          item.is_correct ? "bg-white border-stone-200" : "bg-red-50/50 border-red-200"
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 font-bold text-[#1C1C1C]">
+                          {item.is_correct ? (
+                            <IconCheckCircle size={18} className="text-cvsu-green shrink-0 mt-0.5" />
+                          ) : (
+                            <span className="text-red-600 shrink-0 mt-0.5 font-bold">✕</span>
+                          )}
+                          <span>{idx + 1}. {item.question}</span>
                         </div>
-                      )
-                    )
-                  : (
+
+                        <div className="pl-6 space-y-1">
+                          <p className="text-stone-600">
+                            Submitted Answer:{" "}
+                            <span className="font-bold text-[#1C1C1C]">
+                              {item.user_answer || "—"}
+                            </span>
+                          </p>
+                          <p className="text-stone-500">
+                            Correct Model Answer:{" "}
+                            <span className="font-bold">{item.correct_answer}</span>
+                          </p>
+                          <p className="text-stone-500">
+                            Status:{" "}
+                            <span className="font-bold text-cvsu-green">
+                              {item.is_overridden
+                                ? `Overridden (${item.awarded_points} pts)`
+                                : item.is_correct
+                                  ? "Auto-graded correct"
+                                  : "Auto-graded incorrect"}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
                     <p className="text-xs text-stone-500 text-center py-6">
                       No itemized answer breakdown recorded for this submission.
                     </p>
                   )}
-              </div>
+                </div>
+              )}
             </div>
 
-            <div className="p-6 border-t border-stone-200 bg-white">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm text-stone-500">
-                    Raw Score: {selectedAttempt?.attemptData?.raw_score || 0}
-                  </p>
-                  <p className="text-sm font-bold">
-                    Final Score: {selectedAttempt?.attemptData?.final_score || 0}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <textarea
-                    value={facultyRemarks || ""}
-                    onChange={(e) => setFacultyRemarks(e.target.value)}
-                    placeholder="Enter faculty remarks..."
-                    className="w-full rounded-2xl border border-stone-300 px-4 py-2 text-sm outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
-                    rows={3}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => saveAttemptGrade()}
-                    className="px-6 py-2.5 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-2 shadow-md btn-tactile hover:-translate-y-0.5 cursor-pointer"
-                  >
-                    Verify & Save Grade
-                  </button>
+            {selectedAttempt && (
+              <div className="p-6 border-t border-stone-200 bg-white shrink-0">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+                  <div>
+                    <p className="text-sm text-stone-500">
+                      Raw Score: {selectedAttempt.raw_score} / {selectedAttempt.total_items}
+                    </p>
+                    <p className="text-sm font-bold text-[#1C1C1C]">
+                      Final Score: {selectedAttempt.final_score} / {selectedAttempt.total_items}
+                    </p>
+                  </div>
+                  <div className="flex-1 sm:max-w-md space-y-2">
+                    <textarea
+                      value={facultyRemarks || ""}
+                      onChange={(e) => setFacultyRemarks(e.target.value)}
+                      placeholder="Enter faculty remarks..."
+                      className="w-full rounded-2xl border border-stone-300 px-4 py-2 text-sm outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
+                      rows={2}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSubmissionDrawer(false);
+                          onViewGrades();
+                        }}
+                        className="px-4 py-2 border border-stone-300 bg-white hover:bg-stone-50 text-stone-700 text-xs font-bold rounded-full transition-colors cursor-pointer"
+                      >
+                        Full Gradebook
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSavingGrade}
+                        onClick={() => saveAttemptGrade()}
+                        className="px-6 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-2 shadow-md btn-tactile cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingGrade ? "Saving..." : "Verify & Save Grade"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -1399,18 +1507,58 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           </div>
         )}
 
-        <div className="p-5 bg-[#F7F7F2] border border-stone-200 rounded-2xl space-y-3">
-          <label className="text-xs font-bold text-stone-700 block uppercase tracking-wider">
-            Time Limit (Minutes)
+        <div className="p-5 bg-[#F7F7F2] border border-stone-200 rounded-2xl space-y-2.5">
+          <label
+            htmlFor="create-question-time-limit"
+            className="text-xs font-bold text-stone-700 block uppercase tracking-wider"
+          >
+            Time Limit per Question (Seconds)
           </label>
+          <p id="create-question-time-limit-hint" className="text-xs text-stone-500">
+            Enter a positive whole number of seconds (1 or more), or leave blank for untimed.
+          </p>
           <input
+            ref={timerInputRef}
+            id="create-question-time-limit"
+            name="question_time_limit_seconds"
             type="number"
+            inputMode="numeric"
             min={1}
-            value={timeLimitMinutes}
-            onChange={(e) => setTimeLimitMinutes(e.target.value)}
+            step={1}
+            value={questionTimeLimitSeconds}
+            onChange={(e) => {
+              const next = e.target.value;
+              setQuestionTimeLimitSeconds(next);
+              if (timerError) {
+                const check = validateQuestionTimeLimitSeconds(next, e.target.validity.badInput);
+                if (check.valid) setTimerError(null);
+              }
+            }}
+            onBlur={(e) => {
+              const check = validateQuestionTimeLimitSeconds(
+                e.currentTarget.value,
+                e.currentTarget.validity.badInput
+              );
+              setTimerError(check.valid ? null : check.error);
+            }}
+            aria-invalid={timerError ? "true" : "false"}
+            aria-describedby={
+              timerError
+                ? "create-question-time-limit-hint create-question-time-limit-error"
+                : "create-question-time-limit-hint"
+            }
             placeholder="No time limit"
-            className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-[#1C1C1C] outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
+            className={`w-full rounded-xl border bg-white px-4 py-3 text-sm text-[#1C1C1C] outline-none focus:ring-2 ${
+              timerError
+                ? "border-red-400 bg-red-50/40 focus:border-red-500 focus:ring-red-500/15"
+                : "border-stone-300 focus:border-cvsu-green focus:ring-cvsu-green/10"
+            }`}
           />
+          {timerError && (
+            <p id="create-question-time-limit-error" className="text-xs font-semibold text-red-600">
+              {timerError}
+            </p>
+          )}
         </div>
 
         <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
@@ -1529,50 +1677,62 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       </div>
 
       {/* Submissions & Grading Drawer Section */}
-      {quizzes.length > 0 && (
-        <div className="space-y-6">
-          <div className="border-b border-stone-200 pb-3">
-            <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
-              Submissions & Grading
-            </h3>
-            <p className="text-xs text-stone-500">
-              Review and grade student attempts for published assessments.
-            </p>
-          </div>
-          <div className="divide-y divide-stone-200 rounded-3xl overflow-hidden bg-white shadow-xs">
-            {quizzes.map((quiz) => {
-              const hasSubmissions = quiz.review_status === "published" && (
-                (quiz.assigned_student_emails || []).length > 0
-              );
-              if (!hasSubmissions) return null;
-              return (
-                <div key={quiz.id} className="p-4 flex items-center justify-between border-b border-stone-100 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-1 text-[11px] font-bold text-cvsu-green">
-                      {quiz.quiz_type}
-                    </span>
-                    <span className="font-mono text-xs text-stone-500">
-                      {quiz.question_count} Questions
-                    </span>
-                    <span className="text-stone-400 font-mono text-[11px]">
-                      {quiz.assigned_student_emails?.length ?? 0} assigned
-                    </span>
+      {(() => {
+        const submissionQuizzes = quizzes.filter(
+          (quiz) =>
+            quiz.review_status === "published" &&
+            ((quiz.assigned_count ?? quiz.assigned_student_emails?.length ?? 0) > 0 ||
+              Boolean(quiz.classroom_id))
+        );
+        if (submissionQuizzes.length === 0) return null;
+        return (
+          <div className="space-y-6 pb-8">
+            <div className="border-b border-stone-200 pb-3">
+              <h3 className="font-syne text-sm text-[#1C1C1C] uppercase tracking-wider">
+                Submissions &amp; Grading
+              </h3>
+              <p className="text-xs text-stone-500">
+                Review and grade student attempts for published assessments.
+              </p>
+            </div>
+            <div className="divide-y divide-stone-200 rounded-3xl border border-stone-200 overflow-hidden bg-white shadow-xs">
+              {submissionQuizzes.map((quiz) => {
+                const assignedTotal = quiz.assigned_count ?? quiz.assigned_student_emails?.length ?? 0;
+                return (
+                  <div
+                    key={quiz.id}
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 last:border-0"
+                  >
+                    <div className="min-w-0 space-y-1.5">
+                      <p className="truncate text-sm font-bold text-[#1C1C1C]">{quiz.topic}</p>
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-3 py-0.5 text-[11px] font-bold text-cvsu-green">
+                          {quiz.quiz_type}
+                        </span>
+                        <span className="font-mono text-xs text-stone-500">
+                          {quiz.question_count} Questions
+                        </span>
+                        <span className="text-stone-500 font-mono text-[11px]">
+                          {assignedTotal} assigned
+                        </span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => openSubmissionDrawer(quiz.id, quiz.topic)}
+                        className="px-4 py-2 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-1.5 btn-tactile cursor-pointer shadow-sm hover:shadow-md"
+                      >
+                        View Submissions
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <button
-                      type="button"
-                      onClick={() => openSubmissionDrawer(quiz.id)}
-                      className="px-3 py-1.5 bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold rounded-full transition-all flex items-center gap-1.5 btn-tactile cursor-pointer shadow-sm hover:shadow-md"
-                    >
-                      View Submissions
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {false && (
         <>

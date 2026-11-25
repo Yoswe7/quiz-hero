@@ -26,7 +26,7 @@ class QuizRequest(BaseModel):
     available_from: datetime | None = None
     due_at: datetime | None = None
     assigned_student_emails: list[str] = Field(default_factory=list)
-    time_limit_minutes: int | None = Field(default=None, ge=1)
+    question_time_limit_seconds: int | None = Field(default=None, ge=1)
     generation_mode: Literal["fast", "complex"] = "fast"
 
     @field_validator("assigned_student_emails")
@@ -97,7 +97,7 @@ class QuizSummaryResponse(BaseModel):
     course_code: str | None = None
     class_section: str | None = None
     due_at: datetime | None = None
-    time_limit_minutes: int | None = None
+    question_time_limit_seconds: int | None = None
 
 class StudentQuestionRead(BaseModel):
     """
@@ -121,7 +121,13 @@ class StudentQuizDetailResponse(BaseModel):
     class_section: str | None = None
     available_from: datetime | None = None
     due_at: datetime | None = None
-    time_limit_minutes: int | None = None
+    question_time_limit_seconds: int | None = None
+    allow_retakes: bool = False
+    max_attempts: int | None = None
+    attempts_used: int = 0
+    is_completed: bool = False
+    retake_locked: bool = False
+    lock_reason: str | None = None
     questions: list[StudentQuestionRead]
 
 class QuestionUpdate(BaseModel):
@@ -139,4 +145,4 @@ class QuizUpdateRequest(BaseModel):
     due_at: Optional[datetime] = None
     allow_retakes: Optional[bool] = None
     max_attempts: Optional[int] = Field(default=None, ge=1)
-    time_limit_minutes: Optional[int] = Field(default=None, ge=1)
+    question_time_limit_seconds: Optional[int] = Field(default=None, ge=1)

@@ -50,7 +50,7 @@ export interface QuizPublishPayload {
   available_from?: string;
   due_at?: string;
   assigned_student_emails?: string[];
-  time_limit_minutes?: number | null;
+  question_time_limit_seconds?: number | null;
   generation_mode?: "fast" | "complex";
   material_id?: number;
 }
@@ -83,10 +83,14 @@ export interface PublishedQuiz {
   available_from?: string;
   due_at?: string;
   assigned_student_emails?: string[];
+  assigned_count?: number;
   review_status: "draft" | "published";
   allow_retakes: boolean;
   max_attempts?: number | null;
-  time_limit_minutes?: number | null;
+  question_time_limit_seconds?: number | null;
+  attempts_used?: number;
+  is_completed?: boolean;
+  retake_locked?: boolean;
 }
 
 export interface FacultyAssignedAssessment extends PublishedQuiz {
@@ -123,7 +127,13 @@ export interface QuizDetail {
   class_section?: string;
   available_from?: string;
   due_at?: string;
-  time_limit_minutes?: number | null;
+  question_time_limit_seconds?: number | null;
+  allow_retakes?: boolean;
+  max_attempts?: number | null;
+  attempts_used?: number;
+  is_completed?: boolean;
+  retake_locked?: boolean;
+  lock_reason?: string | null;
   questions: StudentQuestion[];
 }
 

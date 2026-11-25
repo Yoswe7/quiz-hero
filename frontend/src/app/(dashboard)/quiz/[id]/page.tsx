@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchQuizAnswers, fetchQuizDetail, submitQuiz } from "@/lib/api";
@@ -26,6 +26,7 @@ export default function QuizPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const hasSubmittedRef = useRef(false);
   const [submitError, setSubmitError] = useState("");
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   const { data: quizDetail, isLoading, error } = useQuery({
     queryKey: ["quiz", quizId],
@@ -34,6 +35,14 @@ export default function QuizPage() {
     staleTime: 0,
     refetchOnMount: "always",
   });
+
+  useEffect(() => {
+    if (!quizDetail?.due_at) return;
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 15_000);
+    return () => window.clearInterval(interval);
+  }, [quizDetail?.due_at]);
 
   const { data: answerData, isLoading: isLoadingAnswers, error: answersError } = useQuery({
     queryKey: ["quiz-answers", quizId],
@@ -53,11 +62,42 @@ export default function QuizPage() {
     isStudent &&
     !isTeacherPreview &&
     !!quizDetail.due_at &&
-    new Date(quizDetail.due_at).getTime() < Date.now();
+    new Date(quizDetail.due_at).getTime() < nowMs;
   if (isPastDue) {
     return (
       <div className="p-8 text-center text-red-600 font-medium">
         This assessment is past its due date and is no longer available.
+      </div>
+    );
+  }
+  if (isStudent && !isTeacherPreview && quizDetail.retake_locked) {
+    return (
+      <div className="p-8 max-w-lg mx-auto text-center space-y-5">
+        <div className="rounded-3xl border border-stone-200 bg-[#F7F7F2] p-6 space-y-2">
+          <span className="inline-block rounded-full border border-stone-300 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-stone-700">
+            Assessment Locked
+          </span>
+          <h2 className="font-syne text-xl text-[#1C1C1C]">{quizDetail.topic}</h2>
+          <p className="text-sm text-stone-600 font-medium">
+            {quizDetail.lock_reason || "You have already submitted this assessment and retakes are not enabled."}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/grades")}
+            className="px-5 py-2.5 rounded-full bg-cvsu-green hover:bg-cvsu-dark text-white text-xs font-bold transition-colors cursor-pointer"
+          >
+            View My Progress
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard")}
+            className="px-5 py-2.5 rounded-full border border-stone-300 bg-white hover:bg-stone-50 text-stone-700 text-xs font-bold transition-colors cursor-pointer"
+          >
+            Back to Dashboard
+          </button>
+        </div>
       </div>
     );
   }
@@ -126,7 +166,7 @@ export default function QuizPage() {
           questions={quizDetail.questions}
           quizType={quizDetail.quiz_type}
           onComplete={handleQuizComplete}
-          timeLimitMinutes={quizDetail.time_limit_minutes ?? null}
+          questionTimeLimitSeconds={quizDetail.question_time_limit_seconds ?? null}
         />
       ) : (
         <ResultsScreen

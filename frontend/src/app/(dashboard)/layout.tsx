@@ -6,10 +6,19 @@ import {
   useQuizGeneration,
 } from "@/lib/quizGeneration/QuizGenerationContext";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconCvSU, IconLogOut } from "@/components/icons";
 import AIChatbot from "@/components/shared/AIChatbot";
 import Link from "next/link";
+
+const FACULTY_NAV_ITEMS = [
+  { href: "/studio", icon: "✦", label: "Generate" },
+  { href: "/studio/published", icon: "▤", label: "Published Assessments" },
+  { href: "/studio/assigned", icon: "☑", label: "Assigned" },
+  { href: "/studio/classes", icon: "▣", label: "Classes" },
+  { href: "/studio/students", icon: "♙", label: "Enrolled Students" },
+  { href: "/grades", icon: "▥", label: "Gradebook" },
+] as const;
 
 function StudioGenerationBanner() {
   const { generation, clearGeneration } = useQuizGeneration();
@@ -67,6 +76,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isStudentRoute = pathname === "/dashboard" || pathname === "/student" || pathname === "/review" || pathname.startsWith("/quiz");
   const isTeacherRoute = pathname === "/studio" || pathname === "/teacher" || pathname.startsWith("/studio/");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const mobileDrawerRef = useRef<HTMLDialogElement>(null);
+  const drawerSheetRef = useRef<HTMLDivElement>(null);
+
+  const openMobileDrawer = () => {
+    const dialog = mobileDrawerRef.current;
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+    }
+    setIsMobileNavOpen(true);
+  };
+
+  const closeMobileDrawer = () => {
+    const dialog = mobileDrawerRef.current;
+    if (dialog && dialog.open) {
+      dialog.close();
+    }
+    setIsMobileNavOpen(false);
+  };
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -106,24 +134,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="min-h-screen bg-[#F7F7F2] text-[#1C1C1C] selection:bg-cvsu-vibrant selection:text-cvsu-dark">
           <header className="fixed inset-x-0 top-0 z-40 h-[72px] border-b border-white/10 bg-cvsu-dark text-white shadow-md">
             <div className="flex h-full items-center justify-between px-4 sm:px-8">
-              <Link href="/studio" className="flex items-center gap-3 group shrink-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cvsu-vibrant text-cvsu-dark shadow-sm transition-transform group-hover:scale-105">
-                  <IconCvSU size={22} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-syne text-base tracking-tight text-white transition-colors group-hover:text-cvsu-vibrant sm:text-lg">
-                      Quiz Hero
-                    </span>
-                    <span className="rounded-full bg-cvsu-vibrant px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cvsu-dark">
-                      CvSU
-                    </span>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={openMobileDrawer}
+                  aria-label="Open navigation menu"
+                  aria-expanded={isMobileNavOpen}
+                  aria-controls="faculty-mobile-drawer"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-white/90 transition-colors hover:bg-white/10 hover:text-cvsu-vibrant md:hidden cursor-pointer"
+                >
+                  <span className="flex w-5 flex-col gap-1.5" aria-hidden="true">
+                    <span className="h-0.5 w-full rounded-full bg-current" />
+                    <span className="h-0.5 w-full rounded-full bg-current" />
+                    <span className="h-0.5 w-full rounded-full bg-current" />
+                  </span>
+                </button>
+                <Link href="/studio" className="flex items-center gap-3 group shrink-0">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cvsu-vibrant text-cvsu-dark shadow-sm transition-transform group-hover:scale-105">
+                    <IconCvSU size={22} />
                   </div>
-                  <p className="hidden text-[11px] font-medium text-white/60 sm:block">
-                    Cavite State University &bull; Faculty Studio
-                  </p>
-                </div>
-              </Link>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-syne text-base tracking-tight text-white transition-colors group-hover:text-cvsu-vibrant sm:text-lg">
+                        Quiz Hero
+                      </span>
+                      <span className="rounded-full bg-cvsu-vibrant px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cvsu-dark">
+                        CvSU
+                      </span>
+                    </div>
+                    <p className="hidden text-[11px] font-medium text-white/60 sm:block">
+                      Cavite State University &bull; Faculty Studio
+                    </p>
+                  </div>
+                </Link>
+              </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
                 <div className="hidden text-right sm:block">
@@ -144,6 +188,82 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
           </header>
+
+          <dialog
+            ref={mobileDrawerRef}
+            id="faculty-mobile-drawer"
+            aria-label="Faculty Studio navigation"
+            onCancel={() => setIsMobileNavOpen(false)}
+            onClose={() => setIsMobileNavOpen(false)}
+            onClick={(event) => {
+              if (drawerSheetRef.current && !drawerSheetRef.current.contains(event.target as Node)) {
+                closeMobileDrawer();
+              }
+            }}
+            className="inset-0 m-0 h-dvh w-screen max-h-none max-w-none border-0 bg-transparent p-0 backdrop:bg-black/50 md:hidden"
+          >
+            <div
+              ref={drawerSheetRef}
+              className="flex h-full w-[min(20rem,84vw)] flex-col justify-between bg-[#eef5e9] p-4 text-cvsu-dark shadow-2xl border-r border-[#dce8dd]"
+            >
+              <div>
+                <div className="mb-5 flex items-center justify-between border-b border-[#dce8dd] pb-4">
+                  <div>
+                    <p className="font-syne text-base font-bold text-cvsu-dark">Faculty Studio</p>
+                    <p className="font-mono text-[11px] text-stone-600 truncate max-w-[13rem]">
+                      {user.email}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeMobileDrawer}
+                    aria-label="Close navigation menu"
+                    autoFocus
+                    className="flex h-10 w-10 items-center justify-center rounded-xl text-cvsu-dark hover:bg-white/80 font-bold text-sm cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <nav className="space-y-2" aria-label="Faculty Studio mobile navigation">
+                  {FACULTY_NAV_ITEMS.map((item) => {
+                    const isActive = pathname === item.href;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={isActive ? "page" : undefined}
+                        onClick={closeMobileDrawer}
+                        className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                          isActive
+                            ? "bg-cvsu-green text-white shadow-sm"
+                            : "text-cvsu-dark hover:bg-white/80"
+                        }`}
+                      >
+                        <span className="w-6 text-center text-base" aria-hidden="true">
+                          {item.icon}
+                        </span>
+                        <span className="ml-3">{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  closeMobileDrawer();
+                  logout();
+                  router.push("/login");
+                }}
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#dce8dd] bg-white px-4 py-3 text-xs font-bold text-cvsu-dark hover:bg-stone-50 cursor-pointer"
+              >
+                <IconLogOut size={16} />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </dialog>
 
           <aside
             className={`fixed bottom-0 left-0 top-[72px] z-30 hidden border-r border-[#dce8dd] bg-[#eef5e9] transition-[width] duration-300 md:block ${
@@ -167,60 +287,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
 
               <nav className="space-y-2" aria-label="Faculty Studio navigation">
-                <Link
-                  href="/studio"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/studio" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">✦</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Generate</span>}
-                </Link>
-                <Link
-                  href="/studio/published"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/studio/published" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">▤</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Published Assessments</span>}
-                </Link>
-                <Link
-                  href="/studio/assigned"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/studio/assigned" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">☑</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Assigned</span>}
-                </Link>
-                <Link
-                  href="/studio/classes"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/studio/classes" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">▣</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Classes</span>}
-                </Link>
-                <Link
-                  href="/studio/students"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/studio/students" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">♙</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Enrolled Students</span>}
-                </Link>
-                <Link
-                  href="/grades"
-                  className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-                    pathname === "/grades" ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
-                  }`}
-                >
-                  <span className="w-6 text-center text-base">▥</span>
-                  {!isSidebarCollapsed && <span className="ml-3">Gradebook</span>}
-                </Link>
+                {FACULTY_NAV_ITEMS.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`flex items-center rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
+                        isActive ? "bg-cvsu-green text-white shadow-sm" : "text-cvsu-dark hover:bg-white/70"
+                      }`}
+                    >
+                      <span className="w-6 text-center text-base" aria-hidden="true">
+                        {item.icon}
+                      </span>
+                      {!isSidebarCollapsed && <span className="ml-3">{item.label}</span>}
+                    </Link>
+                  );
+                })}
               </nav>
             </div>
           </aside>
@@ -230,7 +314,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               isSidebarCollapsed ? "md:pl-[76px]" : "md:pl-60"
             }`}
           >
-            <div className="mx-auto max-w-7xl px-4 py-8 sm:px-8 sm:py-10">
+            <div className="mx-auto max-w-7xl px-4 pt-8 pb-28 sm:px-8 sm:pt-10">
               <StudioGenerationBanner />
               {children}
             </div>
@@ -307,7 +391,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {/* Main Content Area */}
-      <main className="w-full max-w-6xl px-4 sm:px-8 py-8 sm:py-12 flex-1">
+      <main className="w-full max-w-6xl px-4 sm:px-8 pt-8 pb-28 sm:pt-12 flex-1">
         <div className="bg-white rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.06)] border border-stone-200/90 p-6 sm:p-10">
           {children}
         </div>

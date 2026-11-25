@@ -180,8 +180,8 @@ async def update_quiz(
     update_allow_retakes: bool = False,
     max_attempts: int | None = None,
     update_max_attempts: bool = False,
-    time_limit_minutes: int | None = None,
-    update_time_limit_minutes: bool = False,
+    question_time_limit_seconds: int | None = None,
+    update_question_time_limit_seconds: bool = False,
 ) -> Quiz | None:
     quiz = await get_quiz_by_id(db, quiz_id)
     if not quiz:
@@ -193,8 +193,8 @@ async def update_quiz(
         quiz.available_from = available_from
     if update_due_at:
         quiz.due_at = due_at
-    if update_time_limit_minutes:
-        quiz.time_limit_minutes = time_limit_minutes
+    if update_question_time_limit_seconds:
+        quiz.question_time_limit_seconds = question_time_limit_seconds
     if update_allow_retakes:
         quiz.allow_retakes = bool(allow_retakes)
     if update_max_attempts:
