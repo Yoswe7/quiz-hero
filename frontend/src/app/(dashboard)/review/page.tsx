@@ -30,8 +30,8 @@ export default function ReviewPage() {
     setError("");
     try {
       const [dueItems, studentProgress] = await Promise.all([fetchDueItems(), fetchStudentProgress()]);
-      setItems(dueItems);
-      setProgress(studentProgress);
+      setItems(Array.isArray(dueItems) ? dueItems : []);
+      setProgress(studentProgress ?? null);
       setIndex(0);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load due reviews.");
