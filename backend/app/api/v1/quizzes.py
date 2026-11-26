@@ -25,6 +25,7 @@ from app.services.quiz_service import (
     publish_quiz_workflow,
     resolve_question_count,
     resolve_course_material,
+    should_use_visual_file,
     try_instant_cache,
 )
 from app.services.ai_generator import generate_quiz
@@ -66,18 +67,32 @@ async def generate_quiz_endpoint(
             return {"quiz_data": cached, "fallback_notice": None, "served_from_cache": True}
 
         if material is not None:
-            questions, fallback_notice = await generate_quiz(
-                topic=topic_title,
-                question_count=count,
-                quiz_type=request.quiz_type or "Multiple Choice",
-                source_type="text",
-                content_text=material.extracted_text,
-                file_base64=None,
-                file_mime_type=None,
-                file_name=request.file_name,
-                sections=sections_dict,
-                generation_mode="fast",
-            )
+            if should_use_visual_file(request):
+                questions, fallback_notice = await generate_quiz(
+                    topic=topic_title,
+                    question_count=count,
+                    quiz_type=request.quiz_type or "Multiple Choice",
+                    source_type="file",
+                    content_text=None,
+                    file_base64=request.file_base64,
+                    file_mime_type=request.file_mime_type,
+                    file_name=request.file_name,
+                    sections=sections_dict,
+                    generation_mode=request.generation_mode,
+                )
+            else:
+                questions, fallback_notice = await generate_quiz(
+                    topic=topic_title,
+                    question_count=count,
+                    quiz_type=request.quiz_type or "Multiple Choice",
+                    source_type="text",
+                    content_text=material.extracted_text,
+                    file_base64=None,
+                    file_mime_type=None,
+                    file_name=request.file_name,
+                    sections=sections_dict,
+                    generation_mode=request.generation_mode,
+                )
             return {"quiz_data": questions, "fallback_notice": fallback_notice, "served_from_cache": False}
 
         questions, fallback_notice = await generate_quiz(

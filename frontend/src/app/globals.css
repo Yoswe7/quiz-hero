@@ -219,3 +219,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 input[type="range"]:focus::-webkit-slider-thumb {
   box-shadow: 0 0 0 6px rgba(163, 230, 194, 0.35);
 }
+
+.skeleton {
+  @apply animate-pulse rounded bg-gray-200;
+}

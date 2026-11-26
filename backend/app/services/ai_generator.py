@@ -10,7 +10,7 @@ from itertools import combinations
 from typing import Any, Optional
 
 from app.schemas.ai import GeneratedQuiz
-from app.services.llm_router import LLMRouterError, generate_structured, _extract_pdf_text
+from app.services.llm_router import LLMRouterError, _analyze_pdf, _extract_pdf_text, generate_structured
 
 
 logger = logging.getLogger("quiz_hero.ai")
@@ -69,6 +69,8 @@ def build_prompt(
     content_text: Optional[str] = None,
     file_name: Optional[str] = None,
     sections: Optional[list[dict]] = None,
+    generation_mode: str = "fast",
+    section_label: Optional[str] = None,
 ) -> str:
     active_sections = [s for s in (sections or []) if s.get("question_count", 0) > 0]
     is_mixed = len(active_sections) > 1 or quiz_type == "Mixed Assessment"
@@ -94,6 +96,12 @@ def build_prompt(
     base += "Each item must test one distinct fact or concept. Do not duplicate or paraphrase another item.\n"
     base += 'Each item must include a 1-indexed "question_number" between 1 and the quiz length.\n'
     base += "Respond ONLY with a JSON array of objects without additional text.\n"
+    if generation_mode == "complex":
+        base += (
+            "Complex Mode instructions: Prioritize multi-step reasoning, mathematical accuracy, "
+            "and accurate interpretation of any equations, tables, charts, or diagrams in the source. "
+            "Verify numerical answers and formulas carefully.\n"
+        )
 
     if is_mixed and active_sections:
         base += "\nThe assessment must be divided into specific sections with the following exact question distribution:\n"
@@ -110,6 +118,8 @@ def build_prompt(
 - "options": For Multiple Choice: 4 options array. For True/False: ["True", "False"]. For Identification/Open Ended: [] (empty array).
 - "answer": The exact correct answer string or comprehensive model answer"""
     else:
+        if section_label:
+            base += f'\nEvery object must include "section_name": "{section_label}".\n'
         if quiz_type == "Multiple Choice":
             base += """Each object must have:
 - "question": The question text
@@ -430,6 +440,74 @@ def _top_up_prompt(
     return "\n".join(parts)
 
 
+def _split_generation_batches(
+    question_count: int,
+    quiz_type: str,
+    sections: Optional[list[dict]],
+    effective_mode: str,
+) -> list[dict]:
+    """Split Mixed Assessments and large item counts into bounded per-section
+    batches so concurrent LLM calls stay fast and avoid count-retry waste."""
+    active_sections = [s for s in (sections or []) if s.get("question_count", 0) > 0]
+    chunk_limit = 10 if effective_mode == "complex" else 15
+    batches: list[dict] = []
+
+    if active_sections or quiz_type == "Mixed Assessment":
+        roman_numerals = ["I", "II", "III", "IV", "V"]
+        for idx, section in enumerate(active_sections):
+            stype = section.get("quiz_type", "Multiple Choice")
+            scount = int(section.get("question_count", 0))
+            if scount <= 0:
+                continue
+            section_name = f"Part {roman_numerals[min(idx, len(roman_numerals) - 1)]}: {stype}"
+            if scount <= chunk_limit:
+                batches.append({
+                    "quiz_type": stype,
+                    "question_count": scount,
+                    "section_name": section_name,
+                    "chunk_index": 0,
+                    "chunk_total": 1,
+                })
+            else:
+                chunks = [
+                    min(chunk_limit, scount - offset)
+                    for offset in range(0, scount, chunk_limit)
+                ]
+                for c_idx, c_count in enumerate(chunks):
+                    batches.append({
+                        "quiz_type": stype,
+                        "question_count": c_count,
+                        "section_name": section_name,
+                        "chunk_index": c_idx,
+                        "chunk_total": len(chunks),
+                    })
+        return batches
+
+    if question_count <= chunk_limit:
+        return [{
+            "quiz_type": quiz_type,
+            "question_count": question_count,
+            "section_name": None,
+            "chunk_index": 0,
+            "chunk_total": 1,
+        }]
+
+    chunks = [
+        min(chunk_limit, question_count - offset)
+        for offset in range(0, question_count, chunk_limit)
+    ]
+    return [
+        {
+            "quiz_type": quiz_type,
+            "question_count": c_count,
+            "section_name": None,
+            "chunk_index": c_idx,
+            "chunk_total": len(chunks),
+        }
+        for c_idx, c_count in enumerate(chunks)
+    ]
+
+
 async def generate_quiz(
     topic: str,
     question_count: int,
@@ -447,16 +525,6 @@ async def generate_quiz(
     ) if sections else question_count
     expected_items = _expected_items(expected_count or 0, quiz_type, sections)
 
-    prompt = build_prompt(
-        topic=topic,
-        question_count=question_count,
-        quiz_type=quiz_type,
-        source_type=source_type,
-        content_text=content_text,
-        file_name=file_name,
-        sections=sections,
-    )
-
     raw_bytes = None
     if source_type == "file" and file_base64 and file_mime_type:
         raw_bytes = base64.b64decode(file_base64)
@@ -472,118 +540,187 @@ async def generate_quiz(
                 effective_mode = "complex"
                 fallback_notice = "Switched to Complex Mode because image files need vision processing."
             elif mime == "application/pdf":
-                try:
-                    pdf_text = _extract_pdf_text(raw_bytes)
-                    import pypdf
-                    page_count = max(1, len(pypdf.PdfReader(__import__("io").BytesIO(raw_bytes)).pages))
-                    if len((pdf_text or "").strip()) < 50 * page_count:
-                        effective_mode = "complex"
-                        fallback_notice = "Switched to Complex Mode because the PDF appears scanned or image-heavy."
-                except Exception:
+                pdf_info = _analyze_pdf(raw_bytes, "fast")
+                if pdf_info["use_raw_pdf"]:
                     effective_mode = "complex"
-                    fallback_notice = "Switched to Complex Mode because the PDF could not be read as text."
+                    fallback_notice = "Switched to Complex Mode because the PDF appears scanned or image-heavy."
 
-    def _generate(prompt_text: str) -> GeneratedQuiz:
-        return _run_router(
-            generate_structured(
-                prompt_text,
-                GeneratedQuiz,
-                task="generation",
-                file_bytes=raw_bytes,
-                mime_type=(file_mime_type if source_type == "file" else None),
-                generation_mode=effective_mode,
-            )
+    batches = _split_generation_batches(expected_count or 0, quiz_type, sections, effective_mode)
+    if not batches:
+        raise ValueError("Assessment requires at least one question.")
+
+    mime_lower = (file_mime_type or "").lower()
+    uses_vision_or_complex = (
+        effective_mode == "complex"
+        or (raw_bytes is not None and (mime_lower.startswith("image/") or mime_lower == "application/pdf"))
+    )
+    semaphore = asyncio.Semaphore(2 if uses_vision_or_complex else 3)
+
+    async def _call_router(prompt_text: str, batch_count: int) -> GeneratedQuiz:
+        return await generate_structured(
+            prompt_text,
+            GeneratedQuiz,
+            task="generation",
+            file_bytes=raw_bytes,
+            mime_type=(file_mime_type if source_type == "file" else None),
+            generation_mode=effective_mode,
+            batch_size=batch_count,
         )
 
-    last_error = "unknown validation error"
-    attempts = 0
-    while attempts < MAX_GENERATION_ATTEMPTS:
-        attempts += 1
-        attempt_prompt = prompt
-        if attempts > 1:
-            attempt_prompt += (
-                f"\nThe previous response failed validation: {last_error}.\n"
-                "Generate a complete replacement array. Do not return a partial repair."
+    async def _generate_batch(batch: dict) -> list[dict]:
+        b_type = batch["quiz_type"]
+        b_count = batch["question_count"]
+        b_section = batch["section_name"]
+        b_expected = [(b_type, b_section)] * b_count
+        b_prompt = build_prompt(
+            topic=topic,
+            question_count=b_count,
+            quiz_type=b_type,
+            source_type=source_type,
+            content_text=content_text,
+            file_name=file_name,
+            sections=None,
+            generation_mode=effective_mode,
+            section_label=b_section,
+        )
+        if batch["chunk_total"] > 1:
+            b_prompt += (
+                f"\nBatch {batch['chunk_index'] + 1} of {batch['chunk_total']}: "
+                "focus on distinct concepts and subtopics not covered by other batches."
             )
 
-        try:
-            # Provider failover happens inside the router (Groq -> Gemini ->
-            # OpenRouter for small text). Provider 429/401/403/timeouts never
-            # burn retries here; only domain/semantic validation failures do.
-            quiz_data = [item.model_dump() for item in _generate(attempt_prompt).items]
-
-            # 1) Trim surplus items the model added beyond the expected count
-            #    (e.g. 41 items for a 40-item request).
-            if len(quiz_data) > expected_count:
-                trimmed = _trim_to_expected(quiz_data, expected_items)
-                if trimmed is not None:
-                    logger.info(
-                        "ai_generator trimmed %d surplus item(s): %d -> %d",
-                        len(quiz_data) - len(trimmed),
-                        len(quiz_data),
-                        len(trimmed),
+        async with semaphore:
+            last_error = "unknown validation error"
+            attempts = 0
+            while attempts < MAX_GENERATION_ATTEMPTS:
+                attempts += 1
+                attempt_prompt = b_prompt
+                if attempts > 1:
+                    attempt_prompt += (
+                        f"\nThe previous response failed validation: {last_error}.\n"
+                        "Generate a complete replacement array. Do not return a partial repair."
                     )
-                    quiz_data[:] = trimmed
 
-            # 2) Fill the count: validate the valid prefix of undersized
-            #    responses and top up the missing tail with targeted calls.
-            if len(quiz_data) == expected_count:
-                validate_quiz_data(
-                    quiz_data,
-                    quiz_type,
-                    question_count=expected_count,
-                    sections=sections,
-                )
-            elif len(quiz_data) < expected_count:
-                quiz_data = _validate_items_prefix(quiz_data, expected_items)
-                while len(quiz_data) < expected_count and attempts < MAX_GENERATION_ATTEMPTS:
-                    attempts += 1
-                    missing = expected_count - len(quiz_data)
-                    top_prompt = _top_up_prompt(prompt, quiz_data, expected_items, missing)
-                    try:
-                        new_items = [
-                            item.model_dump()
-                            for item in _run_router(
-                                generate_structured(
-                                    top_prompt,
-                                    GeneratedQuiz,
-                                    task="generation",
-                                    file_bytes=raw_bytes,
-                                    mime_type=(file_mime_type if source_type == "file" else None),
-                                    generation_mode=effective_mode,
-                                )
-                            ).items
-                        ]
-                    except (ValueError, json.JSONDecodeError) as error:
-                        last_error = str(error)
-                        break
-                    appended = _validate_new_items(new_items, quiz_data, expected_items)
-                    if not appended:
-                        last_error = f"top-up call produced no valid items (expected {missing} more)"
-                        break
-                    quiz_data.extend(appended[:missing])
-                if len(quiz_data) != expected_count:
-                    raise ValueError(
-                        f"Expected exactly {expected_count} items but received {len(quiz_data)}"
-                    )
+                try:
+                    raw_items = [item.model_dump() for item in (await _call_router(attempt_prompt, b_count)).items]
+                    if b_section:
+                        for item in raw_items:
+                            if not item.get("section_name"):
+                                item["section_name"] = b_section
+
+                    if len(raw_items) > b_count:
+                        trimmed = _trim_to_expected(raw_items, b_expected)
+                        if trimmed is not None:
+                            logger.info(
+                                "ai_generator trimmed %d surplus item(s): %d -> %d",
+                                len(raw_items) - len(trimmed),
+                                len(raw_items),
+                                len(trimmed),
+                            )
+                            raw_items[:] = trimmed
+
+                    if len(raw_items) == b_count:
+                        seen_local: set[str] = set()
+                        for idx_local, item in enumerate(raw_items):
+                            _validate_item(item, b_type, b_section, seen_local, idx_local + 1)
+                    elif len(raw_items) < b_count:
+                        raw_items = _validate_items_prefix(raw_items, b_expected)
+                        while len(raw_items) < b_count and attempts < MAX_GENERATION_ATTEMPTS:
+                            attempts += 1
+                            missing = b_count - len(raw_items)
+                            top_prompt = _top_up_prompt(b_prompt, raw_items, b_expected, missing)
+                            try:
+                                new_items = [
+                                    item.model_dump()
+                                    for item in (await _call_router(top_prompt, missing)).items
+                                ]
+                                if b_section:
+                                    for item in new_items:
+                                        if not item.get("section_name"):
+                                            item["section_name"] = b_section
+                            except (ValueError, json.JSONDecodeError) as error:
+                                last_error = str(error)
+                                break
+                            appended = _validate_new_items(new_items, raw_items, b_expected)
+                            if not appended:
+                                last_error = f"top-up call produced no valid items (expected {missing} more)"
+                                break
+                            raw_items.extend(appended[:missing])
+                        if len(raw_items) != b_count:
+                            raise ValueError(
+                                f"Expected exactly {b_count} items but received {len(raw_items)}"
+                            )
+                    else:
+                        raise ValueError(
+                            f"Expected exactly {b_count} items but received {len(raw_items)}"
+                        )
+                    return raw_items
+                except (ValueError, json.JSONDecodeError) as error:
+                    last_error = str(error)
+                except LLMRouterError:
+                    raise
+
+            raise ValueError(
+                f"AI generated an invalid assessment batch after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"
+            )
+
+    batch_results = await asyncio.gather(*[_generate_batch(batch) for batch in batches])
+
+    # Merge batches and deduplicate any cross-batch duplicate question stems.
+    merged: list[dict] = []
+    seen_stems: set[str] = set()
+    missing_slots: list[tuple[int, str, Optional[str]]] = []
+    slot_cursor = 0
+    for batch_items in batch_results:
+        for item in batch_items:
+            expected_type, expected_section = expected_items[slot_cursor]
+            stem = re.sub(r"\s+", " ", _clean_text(item.get("question")).casefold()).strip()
+            if stem in seen_stems:
+                missing_slots.append((slot_cursor, expected_type, expected_section))
             else:
-                raise ValueError(
-                    f"Expected exactly {expected_count} items but received {len(quiz_data)}"
-                )
+                seen_stems.add(stem)
+                merged.append(item)
+            slot_cursor += 1
 
-            # question_number is internal tracking: re-indexed during
-            # validation; strip it so DB rows and student responses stay as-is.
-            for item in quiz_data:
-                item.pop("question_number", None)
-            return quiz_data, fallback_notice
-        except (ValueError, json.JSONDecodeError) as error:
-            # Semantic/business-rule mismatches (wrong count, wrong section …):
-            # allow one retry with the validator's feedback attached.
-            last_error = str(error)
-        except LLMRouterError:
-            # All providers failed (quota/auth/unavailable/timeout). Fail fast.
-            raise
+    if missing_slots:
+        replacement_expected = [(qtype, sec) for _, qtype, sec in missing_slots]
+        base_prompt = build_prompt(
+            topic=topic,
+            question_count=len(missing_slots),
+            quiz_type=quiz_type,
+            source_type=source_type,
+            content_text=content_text,
+            file_name=file_name,
+            sections=sections,
+            generation_mode=effective_mode,
+        )
+        top_prompt = _top_up_prompt(
+            base_prompt,
+            merged,
+            [(item.get("quiz_type"), item.get("section_name")) for item in merged] + replacement_expected,
+            len(missing_slots),
+        )
+        new_items = [
+            item.model_dump()
+            for item in (await _call_router(top_prompt, len(missing_slots))).items
+        ]
+        for new_item, (_, _, expected_section) in zip(new_items, missing_slots):
+            if expected_section and not new_item.get("section_name"):
+                new_item["section_name"] = expected_section
+        appended = _validate_new_items(
+            new_items,
+            merged,
+            [(item.get("quiz_type"), item.get("section_name")) for item in merged] + replacement_expected,
+        )
+        for (target_idx, _, _), new_item in zip(missing_slots, appended):
+            merged.insert(min(target_idx, len(merged)), new_item)
 
-    raise ValueError(
-        f"Groq generated an invalid assessment after {MAX_GENERATION_ATTEMPTS} attempts: {last_error}"
+    validate_quiz_data(
+        merged,
+        quiz_type,
+        question_count=expected_count,
+        sections=sections,
     )
+    for item in merged:
+        item.pop("question_number", None)
+    return merged, fallback_notice

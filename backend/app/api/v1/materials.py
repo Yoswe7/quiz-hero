@@ -114,6 +114,11 @@ async def prepare_material(
         return existing
 
     extracted_text = _extract_text(raw_bytes, request.file_mime_type, request.filename)
+    if not (extracted_text or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No readable text could be extracted from this file.",
+        )
     content_hash = hashlib.sha256(_normalize_text(extracted_text).encode("utf-8")).hexdigest()
 
     material = CourseMaterial(
@@ -176,6 +181,7 @@ async def list_materials(
             {
                 "id": material.id,
                 "filename": material.filename,
+                "file_hash": material.file_hash,
                 "status": material.status,
                 "question_pool_count": len(pool) if isinstance(pool, list) else 0,
                 "error_message": material.error_message,

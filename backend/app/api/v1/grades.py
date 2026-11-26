@@ -142,6 +142,7 @@ async def submit_quiz(
         topic=official_quiz.topic,
         score=calculated_score,
         raw_score=calculated_score,
+        ai_score=calculated_score,
         total_questions=total_q,
         percentage=percentage,
         answers=verified_answers

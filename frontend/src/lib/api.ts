@@ -16,7 +16,7 @@ import {
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
 
 // Helper to attach JWT token
-export async function fetchWithAuth(url: string, options: RequestInit = {}) {
+export async function fetchWithAuth<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("cvsu_token") : null;
   const headers = new Headers(options.headers || {});
   
@@ -54,18 +54,18 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   
   // Handle empty/non-JSON responses safely (e.g. 204 No Content).
   if (response.status === 204) {
-    return null as any;
+    return null as T;
   }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     const text = await response.text();
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as T;
     } catch {
-      return text as any;
+      return text as T;
     }
   }
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 export class ApiError extends Error {
@@ -153,7 +153,7 @@ export async function publishAssessment(
 }
 
 export async function fetchQuizzes(): Promise<PublishedQuiz[]> {
-  const data = await fetchWithAuth(`${API_URL}/quizzes`);
+  const data = await fetchWithAuth<{ quizzes: PublishedQuiz[] }>(`${API_URL}/quizzes`);
   return data.quizzes;
 }
 
@@ -183,12 +183,11 @@ export async function fetchClassroomMembers(classroomId: string): Promise<{
   classroom: Classroom;
   members: ClassroomMember[];
 }> {
-  const data = await fetchWithAuth(`${API_URL}/classrooms/${classroomId}/members`);
-  return data;
+  return fetchWithAuth(`${API_URL}/classrooms/${classroomId}/members`);
 }
 
 export async function fetchFacultyAssignedAssessments(): Promise<FacultyAssignedAssessment[]> {
-  const data = await fetchWithAuth(`${API_URL}/faculty-assigned-assessments`);
+  const data = await fetchWithAuth<{ quizzes: FacultyAssignedAssessment[] }>(`${API_URL}/faculty-assigned-assessments`);
   return data.quizzes;
 }
 
@@ -208,10 +207,12 @@ export async function fetchQuizAttempts(quizId: string): Promise<{
     student_email: string;
     student_name: string;
     raw_score: number;
+    ai_score?: number;
     adjusted_score: number | null;
     final_score: number;
     total_items: number;
     is_verified: boolean;
+    grading_status?: string;
     faculty_remarks: string | null;
     reviewed_at: string | null;
     reviewed_by: number | null;
@@ -322,7 +323,7 @@ export async function submitQuiz(
 }
 
 export async function fetchGrades(): Promise<GradeSubmission[]> {
-  const data = await fetchWithAuth(`${API_URL}/grades`);
+  const data = await fetchWithAuth<{ submissions: GradeSubmission[] }>(`${API_URL}/grades`);
   return data.submissions;
 }
 
@@ -385,7 +386,7 @@ export async function sendChatMessage(
       signal: controller.signal,
     });
 
-    return data.reply;
+    return (data as { reply: string }).reply;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("The AI service took too long to respond. Please try again.");
@@ -404,7 +405,7 @@ export interface PreparedMaterial {
   file_hash: string;
   content_hash: string;
   extracted_text: string;
-  pregenerated_questions_json?: any[] | null;
+  pregenerated_questions_json?: unknown[] | null;
   status: string;
   error_message?: string | null;
   created_at: string;
@@ -422,8 +423,8 @@ export async function prepareMaterial(payload: {
 }
 
 export async function fetchMaterials(): Promise<PreparedMaterial[]> {
-  const data = await fetchWithAuth(`${API_URL}/materials`);
-  return data?.materials ?? [];
+  const data = await fetchWithAuth<{ materials?: PreparedMaterial[] }>(`${API_URL}/materials`);
+  return data.materials ?? [];
 }
 
 export async function retryMaterial(materialId: number): Promise<PreparedMaterial> {

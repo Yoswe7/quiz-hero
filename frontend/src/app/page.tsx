@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { UserRole } from "@/types/quiz";
+import { CvSUUser, UserRole } from "@/types/quiz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import LandingPage from "@/components/shared/LandingPage";
 import CvSUAuthModal from "@/components/shared/CvSUAuthModal";
@@ -25,8 +25,8 @@ export default function Home() {
     }
   }, [user, isLoaded, router]);
 
-  const handleLoginSuccess = (authenticatedUser: any) => {
-    login(authenticatedUser, authenticatedUser.token);
+  const handleLoginSuccess = (authenticatedUser: CvSUUser) => {
+    login(authenticatedUser, authenticatedUser.token ?? "");
     setShowAuthModal(false);
     if (authenticatedUser.role?.toLowerCase() === "teacher") {
       router.push("/studio");

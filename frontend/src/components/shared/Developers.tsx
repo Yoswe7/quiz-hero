@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import Image, { type StaticImageData } from "next/image";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { IconCvSU } from "@/components/icons";
-import altheaPhoto from "@/app/developers/althea.jpg";
+const altheaPhoto = "/team/althea.jpg";
 /*import andreiPhoto from "@/app/developers/andrei.jpg";
 import joshPhoto from "@app/developers/josh.jpg";*/
 
@@ -16,7 +16,7 @@ function DeveloperPhoto({
 }: {
   name: string;
   initials: string;
-  photo?: string | StaticImageData;
+  photo?: string;
 }) {
   const [hasError, setHasError] = useState(false);
 

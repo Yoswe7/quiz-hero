@@ -14,7 +14,7 @@ from app.schemas.quiz import QuizRequest
 from app.models import Quiz, Question, Option, Classroom, CourseMaterial
 from app.core.config import GROQ_MAX_IMAGE_BYTES
 from app.services.ai_generator import generate_quiz, _expected_items
-from app.services.llm_router import DOCX_MIME, _extract_pdf_text, _extract_docx_text
+from app.services.llm_router import DOCX_MIME, _analyze_pdf, _extract_pdf_text, _extract_docx_text
 
 ALLOWED_MIME_TYPES = {
     "application/pdf",
@@ -183,6 +183,21 @@ async def resolve_course_material(request: QuizRequest, user_email: str, db: Asy
     return None
 
 
+def should_use_visual_file(request: QuizRequest) -> bool:
+    """Return True when Complex Mode should keep the raw file for vision processing."""
+    if getattr(request, "generation_mode", "fast") != "complex":
+        return False
+    if not request.file_base64 or not request.file_mime_type:
+        return False
+    mime_lower = request.file_mime_type.lower()
+    if mime_lower.startswith("image/"):
+        return True
+    if mime_lower == "application/pdf":
+        raw_bytes = _decode_base64_file(request.file_base64)
+        return bool(_analyze_pdf(raw_bytes, "complex")["use_raw_pdf"])
+    return False
+
+
 def _conflicting_custom_instructions(request: QuizRequest) -> bool:
     if (getattr(request, "content_text", None) or "").strip():
         return True
@@ -290,18 +305,32 @@ async def publish_quiz_workflow(request: QuizRequest, user_email: str, db: Async
         questions_data = cached
         served_from_cache = True
     elif material is not None:
-        gen_res = generate_quiz(
-            topic=topic_title,
-            question_count=count,
-            quiz_type=request.quiz_type,
-            source_type="text",
-            content_text=material.extracted_text,
-            file_base64=None,
-            file_mime_type=None,
-            file_name=request.file_name,
-            sections=sections_dict,
-            generation_mode="fast",
-        )
+        if should_use_visual_file(request):
+            gen_res = generate_quiz(
+                topic=topic_title,
+                question_count=count,
+                quiz_type=request.quiz_type,
+                source_type="file",
+                content_text=None,
+                file_base64=request.file_base64,
+                file_mime_type=request.file_mime_type,
+                file_name=request.file_name,
+                sections=sections_dict,
+                generation_mode=request.generation_mode,
+            )
+        else:
+            gen_res = generate_quiz(
+                topic=topic_title,
+                question_count=count,
+                quiz_type=request.quiz_type,
+                source_type="text",
+                content_text=material.extracted_text,
+                file_base64=None,
+                file_mime_type=None,
+                file_name=request.file_name,
+                sections=sections_dict,
+                generation_mode=request.generation_mode,
+            )
         gen_result = await gen_res if inspect.isawaitable(gen_res) else gen_res
         questions_data, fallback_notice = gen_result
     else:
