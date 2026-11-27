@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from itertools import combinations
 from typing import Any, Optional
 
-from app.schemas.ai import GeneratedQuiz
+from app.schemas.ai import CompactGeneratedQuiz, GeneratedQuiz
 from app.services.llm_router import LLMRouterError, _analyze_pdf, _extract_pdf_text, generate_structured
 
 
@@ -91,11 +91,16 @@ def build_prompt(
     else:
         base = f"Create a {total_count}-question assessment about {topic}.\n"
 
+    compact = generation_mode != "complex"
     base += f"Return EXACTLY {total_count} objects. Never return fewer or more.\n"
     base += "Use only facts supported by the topic or supplied source. Do not invent names, terms, dates, or definitions.\n"
     base += "Each item must test one distinct fact or concept. Do not duplicate or paraphrase another item.\n"
-    base += 'Each item must include a 1-indexed "question_number" between 1 and the quiz length.\n'
-    base += "Respond ONLY with a JSON array of objects without additional text.\n"
+    if compact:
+        base += 'Each item must include a 1-indexed "n" (question number) between 1 and the quiz length.\n'
+        base += "Respond ONLY with JSON using compact keys and explicitly omit explanation and grading_rubric fields.\n"
+    else:
+        base += 'Each item must include a 1-indexed "question_number" between 1 and the quiz length.\n'
+        base += "Respond ONLY with a JSON array of objects without additional text.\n"
     if generation_mode == "complex":
         base += (
             "Complex Mode instructions: Prioritize multi-step reasoning, mathematical accuracy, "
@@ -111,7 +116,15 @@ def build_prompt(
             scount = sec.get("question_count", 5)
             base += f"- Part {roman} ({scount} items): {stype}\n"
 
-        base += """\nEach object in the JSON array must have:
+        if compact:
+            base += """\nEach object must use these compact keys (omit explanation and grading_rubric):
+- "q": The question text
+- "t": Exactly one of ("Multiple Choice", "True or False", "Identification", "Open Ended")
+- "s": Section name, e.g. "Part I: Multiple Choice" or "Part II: Open Ended"
+- "o": For Multiple Choice: 4 options array. For True/False: ["True", "False"]. For Identification/Open Ended: [] (empty array).
+- "a": Concise exact correct answer string (or concise model answer for Open Ended)"""
+        else:
+            base += """\nEach object in the JSON array must have:
 - "question": The question text
 - "quiz_type": Exactly one of ("Multiple Choice", "True or False", "Identification", "Open Ended")
 - "section_name": e.g. "Part I: Multiple Choice" or "Part II: Open Ended"
@@ -119,27 +132,54 @@ def build_prompt(
 - "answer": The exact correct answer string or comprehensive model answer"""
     else:
         if section_label:
-            base += f'\nEvery object must include "section_name": "{section_label}".\n'
-        if quiz_type == "Multiple Choice":
-            base += """Each object must have:
+            key_name = "s" if compact else "section_name"
+            base += f'\nEvery object must include "{key_name}": "{section_label}".\n'
+        if compact:
+            if quiz_type == "Multiple Choice":
+                base += """Each object must use these compact keys (omit explanation and grading_rubric):
+- "q": The question text
+- "t": "Multiple Choice"
+- "o": An array of 4 strings
+- "a": The exact correct option string"""
+            elif quiz_type == "True or False":
+                base += """Each object must use these compact keys (omit explanation and grading_rubric):
+- "q": The question text (a statement)
+- "t": "True or False"
+- "o": ["True", "False"]
+- "a": Either "True" or "False" """
+            elif quiz_type == "Identification":
+                base += """Each object must use these compact keys (omit explanation and grading_rubric):
+- "q": The question text (should have a specific one-word or short-phrase answer)
+- "t": "Identification"
+- "a": The exact correct answer (one term or short phrase, maximum 8 words)
+- "o": [] (empty array)"""
+            elif quiz_type == "Open Ended":
+                base += """Each object must use these compact keys (omit explanation and grading_rubric):
+- "q": An open-ended question requiring explanation
+- "t": "Open Ended"
+- "a": A concise model answer (at least 20 characters)
+- "o": [] (empty array)"""
+        else:
+            if quiz_type == "Multiple Choice":
+                base += """Each object must have:
 - "question": The question text
 - "quiz_type": "Multiple Choice"
 - "options": An array of 4 strings
 - "answer": The exact correct option string"""
-        elif quiz_type == "True or False":
-            base += """Each object must have:
+            elif quiz_type == "True or False":
+                base += """Each object must have:
 - "question": The question text (a statement)
 - "quiz_type": "True or False"
 - "options": ["True", "False"]
 - "answer": Either "True" or "False" """
-        elif quiz_type == "Identification":
-            base += """Each object must have:
+            elif quiz_type == "Identification":
+                base += """Each object must have:
 - "question": The question text (should have a specific one-word or short-phrase answer)
 - "quiz_type": "Identification"
 - "answer": The exact correct answer (one term or short phrase, maximum 8 words)
 - "options": [] (empty array)"""
-        elif quiz_type == "Open Ended":
-            base += """Each object must have:
+            elif quiz_type == "Open Ended":
+                base += """Each object must have:
 - "question": An open-ended question requiring explanation
 - "quiz_type": "Open Ended"
 - "answer": A comprehensive model answer
@@ -192,6 +232,34 @@ def _expected_items(
 
 def _clean_text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def normalize_generated_item(raw_item: Any) -> dict:
+    """Map compact (q/t/o/a/s/n) or verbose LLM item keys to canonical QuizHero keys."""
+    raw = raw_item.model_dump() if hasattr(raw_item, "model_dump") else dict(raw_item)
+    options_raw = raw.get("options") if "options" in raw and raw.get("options") is not None else raw.get("o")
+    if isinstance(options_raw, list):
+        options = [str(opt) for opt in options_raw]
+    else:
+        options = []
+
+    normalized: dict[str, Any] = {
+        "question": _clean_text(raw.get("question") if "question" in raw and raw.get("question") is not None else raw.get("q")),
+        "quiz_type": _clean_text(raw.get("quiz_type") if "quiz_type" in raw and raw.get("quiz_type") is not None else raw.get("t")),
+        "options": options,
+        "answer": _clean_text(raw.get("answer") if "answer" in raw and raw.get("answer") is not None else raw.get("a")),
+        "explanation": _clean_text(raw.get("explanation")),
+    }
+    section = raw.get("section_name") if raw.get("section_name") is not None else raw.get("s")
+    if isinstance(section, str) and section.strip():
+        normalized["section_name"] = section.strip()
+    q_num = raw.get("question_number") if raw.get("question_number") is not None else raw.get("n")
+    if q_num is not None:
+        normalized["question_number"] = q_num
+    rubric = _clean_text(raw.get("grading_rubric"))
+    if rubric:
+        normalized["grading_rubric"] = rubric
+    return normalized
 
 
 def _trim_to_expected(
@@ -413,6 +481,7 @@ def _top_up_prompt(
     existing_items: list,
     expected_items: list[tuple[str, Optional[str]]],
     missing: int,
+    generation_mode: str = "fast",
 ) -> str:
     """Build the follow-up prompt that asks the model only for the missing items."""
     parts = [base_prompt]
@@ -433,10 +502,16 @@ def _top_up_prompt(
         f"The previous response ended early. Generate exactly {missing} additional "
         "questions for the missing slots:\n" + "\n".join(slot_lines)
     )
-    parts.append(
-        'Return only the additional items; each must include "question", "quiz_type", '
-        '"options", "answer", and a 1-indexed "question_number".'
-    )
+    if generation_mode != "complex":
+        parts.append(
+            'Return only the additional items using compact keys "q", "t", "o", "a", '
+            'and 1-indexed "n" (omit explanation and grading_rubric).'
+        )
+    else:
+        parts.append(
+            'Return only the additional items; each must include "question", "quiz_type", '
+            '"options", "answer", and a 1-indexed "question_number".'
+        )
     return "\n".join(parts)
 
 
@@ -556,10 +631,12 @@ async def generate_quiz(
     )
     semaphore = asyncio.Semaphore(2 if uses_vision_or_complex else 3)
 
-    async def _call_router(prompt_text: str, batch_count: int) -> GeneratedQuiz:
+    schema_cls = CompactGeneratedQuiz if effective_mode == "fast" else GeneratedQuiz
+
+    async def _call_router(prompt_text: str, batch_count: int) -> CompactGeneratedQuiz | GeneratedQuiz:
         return await generate_structured(
             prompt_text,
-            GeneratedQuiz,
+            schema_cls,
             task="generation",
             file_bytes=raw_bytes,
             mime_type=(file_mime_type if source_type == "file" else None),
@@ -602,7 +679,10 @@ async def generate_quiz(
                     )
 
                 try:
-                    raw_items = [item.model_dump() for item in (await _call_router(attempt_prompt, b_count)).items]
+                    raw_items = [
+                        normalize_generated_item(item)
+                        for item in (await _call_router(attempt_prompt, b_count)).items
+                    ]
                     if b_section:
                         for item in raw_items:
                             if not item.get("section_name"):
@@ -628,10 +708,12 @@ async def generate_quiz(
                         while len(raw_items) < b_count and attempts < MAX_GENERATION_ATTEMPTS:
                             attempts += 1
                             missing = b_count - len(raw_items)
-                            top_prompt = _top_up_prompt(b_prompt, raw_items, b_expected, missing)
+                            top_prompt = _top_up_prompt(
+                                b_prompt, raw_items, b_expected, missing, generation_mode=effective_mode
+                            )
                             try:
                                 new_items = [
-                                    item.model_dump()
+                                    normalize_generated_item(item)
                                     for item in (await _call_router(top_prompt, missing)).items
                                 ]
                                 if b_section:
@@ -699,9 +781,10 @@ async def generate_quiz(
             merged,
             [(item.get("quiz_type"), item.get("section_name")) for item in merged] + replacement_expected,
             len(missing_slots),
+            generation_mode=effective_mode,
         )
         new_items = [
-            item.model_dump()
+            normalize_generated_item(item)
             for item in (await _call_router(top_prompt, len(missing_slots))).items
         ]
         for new_item, (_, _, expected_section) in zip(new_items, missing_slots):

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, PreparedMaterial } from "@/lib/api";
+import { publishQuiz, publishQuizStream, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, PreparedMaterial } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
 import { validateQuestionTimeLimitSeconds } from "@/lib/quizValidation";
 import {
@@ -174,8 +174,17 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [previewTopic, setPreviewTopic] = useState("");
   const [previewQuizId, setPreviewQuizId] = useState<string | null>(null);
   const [previewReviewStatus, setPreviewReviewStatus] = useState<"draft" | "published">("draft");
+  const [isStreamingDraft, setIsStreamingDraft] = useState(false);
+  const [streamStatusMessage, setStreamStatusMessage] = useState<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [assessmentSearch, setAssessmentSearch] = useState("");
+
+  useEffect(() => {
+    return () => {
+      streamAbortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -591,7 +600,53 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         question_time_limit_seconds: timerValidation.value,
       };
 
-      const result = await publishQuiz(payload);
+      streamAbortRef.current?.abort();
+      const abortController = new AbortController();
+      streamAbortRef.current = abortController;
+      let streamedAnyQuestion = false;
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
+
+      let result;
+      try {
+        result = await publishQuizStream(payload, {
+          signal: abortController.signal,
+          onStatus: (message) => {
+            setStreamStatusMessage(message);
+          },
+          onQuestion: (question) => {
+            if (!streamedAnyQuestion) {
+              streamedAnyQuestion = true;
+              setIsStreamingDraft(true);
+              setPreviewTopic(effectiveTopic);
+              setPreviewQuizId(null);
+              setPreviewReviewStatus("draft");
+              setSuccessMessage(`Generating "${effectiveTopic}" draft...`);
+              setPreviewQuestions([question]);
+            } else {
+              setPreviewQuestions((prev) => [...(prev ?? []), question]);
+            }
+          },
+        });
+      } catch (streamErr) {
+        if (streamErr instanceof Error && streamErr.name === "AbortError") {
+          setIsStreamingDraft(false);
+          setStreamStatusMessage(null);
+          return;
+        }
+        if (streamedAnyQuestion) {
+          throw streamErr;
+        }
+        // Fallback automatically to non-streaming publishQuiz if the stream failed to start
+        result = await publishQuiz(payload);
+      } finally {
+        if (streamAbortRef.current === abortController) {
+          streamAbortRef.current = null;
+        }
+      }
+
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
       setFallbackNotice(result.fallback_notice || null);
       draftCompletedRef.current = true;
       clearDraft(draftKey);
@@ -610,6 +665,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       handleClearFile();
       loadQuizzes();
     } catch (err) {
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
       setError(err instanceof Error ? err.message : "Failed to generate assessment. Please try again.");
     } finally {
       setIsLoading(false);
@@ -953,16 +1010,26 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
     return (
       <div className="view-transition space-y-6">
-        <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex items-start gap-3.5 text-white shadow-md">
-          <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
-            <p className="text-xs text-white/70 mt-0.5">
-              {previewReviewStatus === "draft"
-                ? "Review the generated content and answer key before making it available to students."
-                : "This assessment has been verified and published to the assigned students."}
-            </p>
+        <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-white shadow-md">
+          <div className="flex items-start gap-3.5">
+            <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
+              <p className="text-xs text-white/70 mt-0.5">
+                {isStreamingDraft
+                  ? (streamStatusMessage || "Questions are appearing live as each section finishes.")
+                  : previewReviewStatus === "draft"
+                    ? "Review the generated content and answer key before making it available to students."
+                    : "This assessment has been verified and published to the assigned students."}
+              </p>
+            </div>
           </div>
+          {isStreamingDraft && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-cvsu-vibrant/40 bg-white/10 px-3 py-1 text-xs font-semibold text-cvsu-vibrant">
+              <span className="h-2 w-2 rounded-full bg-cvsu-vibrant animate-pulse" />
+              Generating remaining questions...
+            </span>
+          )}
         </div>
 
         <TeacherQuizPreview
@@ -970,6 +1037,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           questions={previewQuestions}
           quizType={quizType}
           onBack={() => {
+            streamAbortRef.current?.abort();
+            setIsStreamingDraft(false);
+            setStreamStatusMessage(null);
             setPreviewQuestions(null);
             setSuccessMessage("");
             setPreviewQuizId(null);
@@ -979,7 +1049,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700" role="alert">{error}</p>}
 
-        {previewQuizId && previewReviewStatus === "draft" && (
+        {previewQuizId && !isStreamingDraft && previewReviewStatus === "draft" && (
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
@@ -1002,6 +1072,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         <button
           type="button"
           onClick={() => {
+            streamAbortRef.current?.abort();
+            setIsStreamingDraft(false);
+            setStreamStatusMessage(null);
             setPreviewQuestions(null);
             setSuccessMessage("");
             setPreviewQuizId(null);
