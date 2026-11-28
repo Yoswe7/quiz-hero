@@ -3,7 +3,8 @@ import secrets
 import string
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -21,11 +22,14 @@ from app.schemas.quiz import (
 from app.models import User, Classroom, ClassroomMembership, Quiz, Submission
 from app.api.dependencies import get_db_session, get_current_user, require_teacher, require_student
 from app.services.quiz_service import (
+    assemble_quiz_from_pool_and_llm,
+    backfill_quiz_explanations,
+    prepare_publish_context,
+    stream_publish_quiz_events,
     validate_source_payload,
     publish_quiz_workflow,
     resolve_question_count,
     resolve_course_material,
-    try_instant_cache,
 )
 from app.services.ai_generator import generate_quiz
 from app.services.ai_grader import grade_open_answer
@@ -61,38 +65,19 @@ async def generate_quiz_endpoint(
         sections_dict = [s.model_dump() for s in raw_sections] if raw_sections else None
 
         material = await resolve_course_material(request, current_user.email, db)
-        cached = try_instant_cache(material, request)
-        if cached is not None:
-            return {"quiz_data": cached, "fallback_notice": None, "served_from_cache": True}
-
-        if material is not None:
-            questions, fallback_notice = await generate_quiz(
-                topic=topic_title,
-                question_count=count,
-                quiz_type=request.quiz_type or "Multiple Choice",
-                source_type="text",
-                content_text=material.extracted_text,
-                file_base64=None,
-                file_mime_type=None,
-                file_name=request.file_name,
-                sections=sections_dict,
-                generation_mode="fast",
-            )
-            return {"quiz_data": questions, "fallback_notice": fallback_notice, "served_from_cache": False}
-
-        questions, fallback_notice = await generate_quiz(
-            topic=topic_title,
-            question_count=count,
-            quiz_type=request.quiz_type or "Multiple Choice",
-            source_type=request.source_type or "topic",
-            content_text=request.content_text,
-            file_base64=request.file_base64,
-            file_mime_type=request.file_mime_type,
-            file_name=request.file_name,
-            sections=sections_dict,
-            generation_mode=request.generation_mode,
+        questions, fallback_notice, served_from_cache = await assemble_quiz_from_pool_and_llm(
+            request,
+            material,
+            db,
+            topic_title=topic_title,
+            count=count,
+            sections_dict=sections_dict,
         )
-        return {"quiz_data": questions, "fallback_notice": fallback_notice, "served_from_cache": False}
+        return {
+            "quiz_data": questions,
+            "fallback_notice": fallback_notice,
+            "served_from_cache": served_from_cache,
+        }
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="AI returned invalid JSON. Please try again.")
     except ValueError as e:
@@ -101,9 +86,39 @@ async def generate_quiz_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to generate quiz: {str(e)}")
 
 
+@router.post("/publish-quiz-stream")
+async def publish_quiz_stream_endpoint(
+    request: QuizRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_teacher),
+    _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
+):
+    validate_source_payload(request)
+    topic_title, sections_dict, count = await prepare_publish_context(request, current_user.email, db)
+    material = await resolve_course_material(request, current_user.email, db)
+    return StreamingResponse(
+        stream_publish_quiz_events(
+            request,
+            http_request,
+            current_user.email,
+            background_tasks,
+            topic_title=topic_title,
+            sections_dict=sections_dict,
+            count=count,
+            material=material,
+        ),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/publish-quiz")
 async def publish_quiz_endpoint(
     request: QuizRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_teacher),
     _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
@@ -116,6 +131,12 @@ async def publish_quiz_endpoint(
         persisted_quiz = await get_quiz_by_id(db, new_quiz.id)
         if not persisted_quiz:
             raise HTTPException(status_code=500, detail="Assessment was created but could not be loaded for review.")
+        if any(
+            not (question.explanation or "").strip()
+            or (question.quiz_type == "Open Ended" and not (question.grading_rubric or "").strip())
+            for question in persisted_quiz.questions
+        ):
+            background_tasks.add_task(backfill_quiz_explanations, persisted_quiz.id)
         return {
             "message": "Assessment draft created for review.",
             "fallback_notice": fallback_notice,
@@ -134,6 +155,8 @@ async def publish_quiz_endpoint(
                         "question": question.question_text,
                         "options": [option.option_text for option in question.options],
                         "answer": question.answer,
+                        "explanation": question.explanation or "",
+                        "grading_rubric": question.grading_rubric,
                         "quiz_type": question.quiz_type,
                         "section_name": question.section_name,
                     }
@@ -149,6 +172,35 @@ async def publish_quiz_endpoint(
         raise HTTPException(status_code=502, detail=f"Assessment generation failed: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate quiz: {str(e)}")
+
+
+@router.post("/publish-quiz-stream")
+async def publish_quiz_stream_endpoint(
+    request: QuizRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_teacher),
+    _rate_limit: None = Depends(rate_limit(10, 60, authenticated=True)),
+    _ai_limit: None = Depends(ai_concurrency_limit(authenticated=True)),
+):
+    validate_source_payload(request)
+    topic_title, sections_dict, count = await prepare_publish_context(request, current_user.email, db)
+    material = await resolve_course_material(request, current_user.email, db)
+    return StreamingResponse(
+        stream_publish_quiz_events(
+            request,
+            http_request,
+            current_user.email,
+            background_tasks,
+            topic_title=topic_title,
+            sections_dict=sections_dict,
+            count=count,
+            material=material,
+        ),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/quizzes")
@@ -482,6 +534,8 @@ async def get_quiz_answers_endpoint(
             "question": q.question_text,
             "options": options,
             "answer": q.answer,
+            "explanation": q.explanation or "",
+            "grading_rubric": q.grading_rubric,
             "quiz_type": q.quiz_type,
             "section_name": q.section_name
         })

@@ -358,7 +358,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Due Reviews
               </Link>
             )}
-            <span>{isTeacher ? "Faculty Studio" : "Student Studio"}</span>
+            <Link
+              href={isTeacher ? "/studio" : "/dashboard"}
+              className="rounded-full px-3 py-1.5 transition hover:bg-white/10 hover:text-cvsu-vibrant"
+            >
+              {isTeacher ? "Faculty Studio" : "Student Studio"}
+            </Link>
           </div>
 
           {/* Right: User Profile & Actions */}

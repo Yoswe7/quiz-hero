@@ -21,6 +21,20 @@ async def get_due_items(session: AsyncSession, user_email: str, limit: int = 50)
     result = await session.execute(q)
     return result.scalars().all()
 
+
+async def get_all_items(session: AsyncSession, user_email: str, limit: int = 100) -> List[ReviewItem]:
+    """
+    Return all SRS items belonging to a student regardless of next_review_at.
+    """
+    q = (
+        select(ReviewItem)
+        .where(ReviewItem.user_email == user_email)
+        .order_by(ReviewItem.created_at.asc())
+        .limit(limit)
+    )
+    result = await session.execute(q)
+    return result.scalars().all()
+
 async def get_item(session: AsyncSession, item_id):
     q = select(ReviewItem).where(ReviewItem.id == item_id)
     res = await session.execute(q)

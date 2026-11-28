@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
 import re
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, Type
 
@@ -28,26 +30,29 @@ if not logger.handlers:
     logger.propagate = False
 
 GEN_TIMEOUT = 25.0
+COMPLEX_GEMINI_TIMEOUT = 35.0
+OVERALL_GENERATION_DEADLINE = 65.0
 GRADE_TIMEOUT = 12.0
 CHAT_TIMEOUT = 10.0
 
 
-def _timeout_for(provider: str, task: str) -> float:
-    """Per-provider request deadline. NVIDIA's free hosted endpoints run large
-    reasoning models and measured 30-40s even for a two-item completion, so
-    they get generous budgets instead of starving under the Groq/Gemini limits."""
+def _timeout_for(provider: str, task: str, generation_mode: str = "fast") -> float:
+    """Per-provider request deadline. Complex Mode Gemini calls get 35s for deeper
+    reasoning/vision parsing, while slow fallback hosts are capped to fit inside
+    the overall wall-clock budget."""
+    if provider == "gemini" and task == "generation" and generation_mode == "complex":
+        return COMPLEX_GEMINI_TIMEOUT
     if provider == "nvidia":
-        return {"generation": 90.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
+        return {"generation": 45.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
     if provider == "gonkaro":
-        # GLM-5.3-Flash on Gonkaro measured ~77s for 20 questions: a short
-        # deadline would always abort before the response arrives.
-        return {"generation": 120.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
+        return {"generation": 65.0, "grading": 45.0, "chat": 30.0}.get(task, GEN_TIMEOUT)
     return GEN_TIMEOUT if task == "generation" else (GRADE_TIMEOUT if task == "grading" else CHAT_TIMEOUT)
 PDF_MIME = "application/pdf"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DOCX_TEXT_MAX_CHARS = 25_000
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
 MAX_TEXT_CHARS_ROUTING = 24_000
+PDF_FALLBACK_MIN_TEXT_CHARS = 100
 DAILY_COOLDOWN = 60 * 60  # suspected daily (RPD) quota exhaustion
 DEFAULT_COOLDOWN = 15 * 60
 
@@ -171,7 +176,7 @@ async def _is_cooldown(provider: str, model: str) -> bool:
 
 
 def _should_set_cooldown(exc: BaseException) -> bool:
-    return _classify(exc) in {"rate_limit", "unavailable", "timeout"}
+    return _classify(exc) in {"auth", "rate_limit", "unavailable", "timeout"}
 
 
 async def _mark_cooldown(provider: str, model: str, exc: BaseException) -> None:
@@ -265,12 +270,92 @@ def _extract_pdf_text(file_bytes: bytes) -> str:
         return ""
 
 
+def _resolve_pdf_obj(obj):
+    return obj.get_object() if hasattr(obj, "get_object") else obj
+
+
+def _analyze_pdf(file_bytes: bytes, generation_mode: str = "fast") -> dict:
+    """Inspect a PDF's text density and non-decorative images to decide whether
+    it requires Gemini's native document/vision route or fast plain-text routing."""
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+        page_texts = [(page.extract_text() or "") for page in reader.pages]
+        text = "\n".join(page_texts).strip()
+        page_count = max(1, len(reader.pages))
+        chars_per_page = len(text) / page_count
+
+        # Track large image objects and which pages they appear on so repeated
+        # template headers/logos/watermarks across slide decks are ignored.
+        image_pages: dict[tuple, set[int]] = defaultdict(set)
+        for page_idx, page in enumerate(reader.pages):
+            resources = _resolve_pdf_obj(page.get("/Resources"))
+            if not isinstance(resources, dict):
+                continue
+            xobjects = _resolve_pdf_obj(resources.get("/XObject"))
+            if not isinstance(xobjects, dict):
+                continue
+            for ref in xobjects.values():
+                obj = _resolve_pdf_obj(ref)
+                if not isinstance(obj, dict) or obj.get("/Subtype") != "/Image":
+                    continue
+                try:
+                    width = int(obj.get("/Width", 0) or 0)
+                    height = int(obj.get("/Height", 0) or 0)
+                except (TypeError, ValueError):
+                    width, height = 0, 0
+                if width < 250 and height < 250:
+                    continue
+
+                raw_stream = getattr(obj, "_data", None)
+                if isinstance(raw_stream, (bytes, bytearray)):
+                    sig = hashlib.sha256(bytes(raw_stream[:4096])).hexdigest()[:16]
+                    key = (width, height, len(raw_stream), sig)
+                elif hasattr(ref, "idnum"):
+                    key = ("ref", ref.idnum, getattr(ref, "generation", 0))
+                else:
+                    key = ("obj", id(obj), width, height)
+                image_pages[key].add(page_idx)
+
+        has_meaningful_images = any(
+            page_count == 1 or len(pages_seen) == 1
+            for pages_seen in image_pages.values()
+        )
+    except Exception as exc:
+        logger.warning("pypdf analysis failed: %s", type(exc).__name__)
+        return {
+            "text": "",
+            "page_count": 1,
+            "chars_per_page": 0.0,
+            "has_meaningful_images": False,
+            "use_raw_pdf": True,
+        }
+
+    if not text:
+        use_raw_pdf = True
+    elif generation_mode == "fast":
+        use_raw_pdf = chars_per_page < 50
+    else:
+        use_raw_pdf = (chars_per_page < 150) or has_meaningful_images
+
+    return {
+        "text": text,
+        "page_count": page_count,
+        "chars_per_page": chars_per_page,
+        "has_meaningful_images": has_meaningful_images,
+        "use_raw_pdf": use_raw_pdf,
+    }
+
+
 # ----------------------------------------------------------- providers
 def _gemini_config(
     task: Literal["generation", "grading", "chat"],
     schema: Optional[Type[BaseModel]] = None,
     system_prompt: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
+    *,
+    model_name: Optional[str] = None,
+    generation_mode: str = "fast",
+    batch_size: Optional[int] = None,
 ) -> types.GenerateContentConfig:
     kwargs: dict = dict(temperature=0 if task != "chat" else 0.7)
     if system_prompt is not None:
@@ -279,9 +364,18 @@ def _gemini_config(
         kwargs["max_output_tokens"] = max_output_tokens
     if task == "chat":
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+    elif task == "grading":
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+    elif (
+        task == "generation"
+        and generation_mode == "complex"
+        and "3.8" in (model_name or "")
+        and batch_size is not None
+        and batch_size <= 10
+    ):
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
     else:
-        thinking = types.ThinkingLevel.MINIMAL if task == "grading" else types.ThinkingLevel.LOW
-        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=thinking)
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
     if schema is not None:
         kwargs["response_mime_type"] = "application/json"
         kwargs["response_schema"] = schema
@@ -300,9 +394,19 @@ async def _call_gemini(
     messages: Optional[list[dict]] = None,
     max_output_tokens: Optional[int] = None,
     timeout: float,
+    generation_mode: str = "fast",
+    batch_size: Optional[int] = None,
 ):
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    config = _gemini_config(task, schema, system_prompt, max_output_tokens)
+    config = _gemini_config(
+        task,
+        schema,
+        system_prompt,
+        max_output_tokens,
+        model_name=provider_model,
+        generation_mode=generation_mode,
+        batch_size=batch_size,
+    )
 
     if messages is not None:
         contents = [
@@ -519,15 +623,20 @@ async def _call_openai_compatible(
 
 
 # --------------------------------------------------------- routing
-def _route_order(is_large_text: bool, is_image: bool, is_pdf: bool) -> list[str]:
+def _route_order(
+    is_large_text: bool,
+    is_image: bool,
+    is_pdf: bool,
+    has_pdf_text: bool = False,
+) -> list[str]:
     # gonkaro is always last: its GLM model works but is much slower than the
     # other providers, so it is a genuine fallback rather than a peer.
     if is_pdf:
-        return ["gemini", "nvidia", "groq", "openrouter", "gonkaro"]
+        return ["gemini", "openrouter", "groq", "nvidia", "gonkaro"] if has_pdf_text else ["gemini"]
     if is_image:
         return ["gemini", "nvidia", "openrouter"]
     if is_large_text:
-        return ["nvidia", "gemini", "openrouter", "groq", "gonkaro"]
+        return ["gemini", "openrouter", "groq", "nvidia", "gonkaro"]
     # Generation gets an OpenRouter fallback right after Groq: measured
     # `openrouter/free` at 4.7s (5q) and 8.1s (15q), comparable to Groq's
     # own numbers, with independent rate limits.
@@ -546,22 +655,38 @@ async def _attempt_provider(
     messages: Optional[list[dict]] = None,
     max_output_tokens: Optional[int] = None,
     pdf_text: Optional[str] = None,
+    generation_mode: str = "fast",
+    batch_size: Optional[int] = None,
+    timeout_cap: Optional[float] = None,
 ):
     is_image = bool(file_bytes) and mime_type in IMAGE_MIMES
+
+    def _effective_timeout(provider_name: str) -> float:
+        base_timeout = _timeout_for(provider_name, task, generation_mode)
+        return min(base_timeout, timeout_cap) if timeout_cap is not None else base_timeout
 
     def _prompt_for(provider_name: str) -> str:
         if task == "chat":
             return prompt or ""
         if mime_type == PDF_MIME and pdf_text is not None:
-            return f"{prompt}\n\nSOURCE MATERIAL:\n{pdf_text}"
+            text_chunk = (
+                pdf_text[:MAX_TEXT_CHARS_ROUTING]
+                if provider_name == "groq" and len(pdf_text) > MAX_TEXT_CHARS_ROUTING
+                else pdf_text
+            )
+            return f"{prompt}\n\nSOURCE MATERIAL:\n{text_chunk}"
         return prompt or ""
 
     if provider == "gemini":
         if not settings.GEMINI_API_KEY:
             logger.info("llm_router skip gemini: GEMINI_API_KEY not configured")
             return None, "gemini key not configured"
-        models = GEMINI_MODELS[task]
-        timeout = _timeout_for(provider, task)
+        base_models = list(GEMINI_MODELS[task])
+        if task == "generation" and generation_mode == "complex":
+            models = sorted(base_models, key=lambda m: (0 if "3.8" in m else 1))
+        else:
+            models = base_models
+        timeout = _effective_timeout(provider)
         return (
             lambda model: _call_gemini(
                 model,
@@ -574,6 +699,8 @@ async def _attempt_provider(
                 messages=messages,
                 max_output_tokens=max_output_tokens,
                 timeout=timeout,
+                generation_mode=generation_mode,
+                batch_size=batch_size,
             ),
             models,
         )
@@ -587,7 +714,7 @@ async def _attempt_provider(
         if mime_type == PDF_MIME and not pdf_text:
             return None, "pdf requires native document support"
         models = GROQ_MODELS[task]
-        timeout = _timeout_for(provider, task)
+        timeout = _effective_timeout(provider)
         effective_prompt = _prompt_for("groq")
         return (
             lambda model: _call_openai_compatible(
@@ -613,7 +740,7 @@ async def _attempt_provider(
         if mime_type == PDF_MIME and not pdf_text:
             return None, "pdf requires native document support"
         models = NVIDIA_MODELS["vision"] if is_image else NVIDIA_MODELS[task]
-        timeout = _timeout_for(provider, task)
+        timeout = _effective_timeout(provider)
         effective_prompt = _prompt_for("nvidia")
         return (
             lambda model: _call_openai_compatible(
@@ -639,7 +766,7 @@ async def _attempt_provider(
         if mime_type == PDF_MIME and not pdf_text:
             return None, "pdf requires native document support"
         models = GONKARO_MODELS[task]
-        timeout = _timeout_for(provider, task)
+        timeout = _effective_timeout(provider)
         effective_prompt = _prompt_for("gonkaro")
         return (
             lambda model: _call_openai_compatible(
@@ -665,7 +792,7 @@ async def _attempt_provider(
         if mime_type == PDF_MIME and not pdf_text:
             return None, "pdf requires native document support"
         models = OPENROUTER_MODELS["vision"] if is_image else OPENROUTER_MODELS["general"]
-        timeout = _timeout_for(provider, task)
+        timeout = _effective_timeout(provider)
         effective_prompt = _prompt_for("openrouter")
         return (
             lambda model: _call_openai_compatible(
@@ -674,8 +801,8 @@ async def _attempt_provider(
                 task,
                 prompt=effective_prompt if task != "chat" else None,
                 schema=schema,
-                file_bytes=file_bytes,
-                mime_type=mime_type,
+                file_bytes=file_bytes if is_image else None,
+                mime_type=mime_type if is_image else None,
                 system_prompt=system_prompt,
                 messages=messages,
                 max_output_tokens=max_output_tokens,
@@ -696,6 +823,7 @@ async def generate_structured(
     mime_type: Optional[str] = None,
     system_prompt: Optional[str] = None,
     generation_mode: str = "fast",
+    batch_size: Optional[int] = None,
 ) -> BaseModel:
     if not isinstance(schema, type) or not issubclass(schema, BaseModel):
         raise TypeError("schema must be a Pydantic BaseModel subclass")
@@ -716,25 +844,28 @@ async def generate_structured(
         file_bytes = None
         mime_type = None
         is_word = False
-        is_large_text = False
+        is_large_text = len(prompt) > MAX_TEXT_CHARS_ROUTING
     if is_pdf:
-        pdf_text = _extract_pdf_text(file_bytes)
-        threshold = 50 if generation_mode == "fast" else 500
-        if pdf_text and len(pdf_text.strip()) >= threshold:
+        pdf_info = _analyze_pdf(file_bytes, generation_mode)
+        extracted_text = pdf_info["text"]
+        if not pdf_info["use_raw_pdf"] and extracted_text:
             # Text-based PDFs are far faster as plain text: Groq/Gemini can
             # read the extracted text directly, and we avoid shipping the
-            # binary document to every provider (Gemini re-parses it each time).
-            prompt = f"{prompt}\n\nSOURCE MATERIAL:\n{pdf_text.strip()}"
+            # binary document when no meaningful visuals require vision.
+            prompt = f"{prompt}\n\nSOURCE MATERIAL:\n{extracted_text}"
             file_bytes = None
             mime_type = None
             is_pdf = False
-            is_large_text = False
+            pdf_text = extracted_text
+            is_large_text = len(prompt) > MAX_TEXT_CHARS_ROUTING
         else:
-            # Scanned/image-only PDF: only Gemini can read the raw document.
-            pdf_text = None
+            # Visual/scanned PDF: send raw PDF to Gemini first, but keep any
+            # meaningful extracted text (>= 100 chars) for plain-text fallback.
+            pdf_text = extracted_text if len(extracted_text.strip()) >= PDF_FALLBACK_MIN_TEXT_CHARS else None
 
     notes: list[str] = []
     last_error: Optional[BaseException] = None
+    has_pdf_text = bool(pdf_text and len(pdf_text.strip()) >= PDF_FALLBACK_MIN_TEXT_CHARS)
 
     if pdf_text is not None and not is_pdf:
         logger.info(
@@ -742,7 +873,19 @@ async def generate_structured(
             len(pdf_text),
         )
 
-    for provider in _route_order(is_large_text, is_image, is_pdf):
+    deadline = (
+        time.monotonic() + OVERALL_GENERATION_DEADLINE
+        if task == "generation"
+        else None
+    )
+
+    for provider in _route_order(is_large_text, is_image, is_pdf, has_pdf_text=has_pdf_text):
+        remaining: Optional[float] = None
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.5:
+                notes.append("overall deadline exceeded")
+                break
         attempt, models = await _attempt_provider(
             provider,
             task,
@@ -752,10 +895,18 @@ async def generate_structured(
             mime_type=mime_type,
             system_prompt=system_prompt,
             pdf_text=pdf_text,
+            generation_mode=generation_mode,
+            batch_size=batch_size,
+            timeout_cap=remaining,
         )
         if attempt is None:
             continue
         for model in models:
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.5:
+                    notes.append("overall deadline exceeded")
+                    break
             if await _is_cooldown(provider, model):
                 logger.info("llm_router skip %s:%s (on cooldown)", provider, model)
                 notes.append(f"{provider}:{model} cooldown")
@@ -763,7 +914,10 @@ async def generate_structured(
             try:
                 logger.info("llm_router attempt %s:%s (task=%s)", provider, model, task)
                 started = time.perf_counter()
-                result = await attempt(model)
+                if remaining is not None:
+                    result = await asyncio.wait_for(attempt(model), timeout=remaining)
+                else:
+                    result = await attempt(model)
                 logger.info(
                     "llm_router success %s:%s (task=%s) in %.1fs",
                     provider, model, task, time.perf_counter() - started,
@@ -775,9 +929,18 @@ async def generate_structured(
                 notes.append(f"{provider}:{model} timeout")
             except Exception as exc:
                 last_error = exc
+                kind = _classify(exc)
+                if kind == "auth":
+                    # An invalid/revoked API key affects every model on this provider.
+                    for m in models:
+                        await _mark_cooldown(provider, m, exc)
+                    notes.append(f"{provider}:{model} failed (auth)")
+                    break
                 if _should_set_cooldown(exc):
                     await _mark_cooldown(provider, model, exc)
-                notes.append(f"{provider}:{model} failed ({_classify(exc)})")
+                notes.append(f"{provider}:{model} failed ({kind})")
+        if deadline is not None and (deadline - time.monotonic()) <= 0.5:
+            break
 
     logger.warning("llm_router exhausted for task=%s; notes=%s", task, notes)
     raise LLMRouterError(

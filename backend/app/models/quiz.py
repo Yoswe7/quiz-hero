@@ -20,6 +20,8 @@ class Question(SQLModel, table=True):
     quiz_type: str
     section_name: str | None = Field(default=None)
     answer: str
+    explanation: str | None = Field(default=None)
+    grading_rubric: str | None = Field(default=None)
     order_index: int = Field(default=0)
 
     quiz: "Quiz" = Relationship(back_populates="questions")

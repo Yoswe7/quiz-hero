@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Question, QuizType, CvSUUser, PublishedQuiz, SourceMaterialType } from "@/types/quiz";
-import { publishQuiz, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, type PreparedMaterial } from "@/lib/api";
+import { publishQuiz, publishQuizStream, publishAssessment, fetchQuizzes, fetchClassrooms, fetchQuizAnswers, fetchQuizAttempts, gradeFacultyAttempt, deleteQuiz, assignStudentToQuiz, API_URL, fetchMaterials, prepareMaterial, retryMaterial, PreparedMaterial } from "@/lib/api";
 import { formatManilaDateTime } from "@/lib/dateUtils";
 import { validateQuestionTimeLimitSeconds } from "@/lib/quizValidation";
 import {
@@ -23,7 +23,6 @@ import {
   IconFileText,
   IconArrowRight,
 } from "@/components/icons";
-import AIChatbot from "@/components/shared/AIChatbot"; // Adjusted as per instruction
 import TeacherQuizPreview from "@/features/assessment-engine/components/TeacherQuizPreview";
 import AssessmentEditorModal from "@/features/assessment-engine/components/AssessmentEditorModal";
 import { clearDraft, readDraft, writeDraft } from "@/lib/draftRecovery";
@@ -42,14 +41,29 @@ interface QuizAttemptItem {
   student_email: string;
   student_name: string;
   raw_score: number;
+  ai_score?: number;
   adjusted_score: number | null;
   final_score: number;
   total_items: number;
   is_verified: boolean;
+  grading_status?: string;
   faculty_remarks: string | null;
   reviewed_at: string | null;
   reviewed_by: number | null;
   answers: QuizAttemptAnswer[];
+}
+
+type PreloadQueueStatus = "queued" | "preparing" | "ready" | "failed";
+
+interface PreloadQueueItem {
+  id: string;
+  filename: string;
+  status: PreloadQueueStatus;
+}
+
+interface FileFingerprint {
+  key: string;
+  kind: "sha256" | "filename";
 }
 
 interface Props {
@@ -100,6 +114,7 @@ const ASSESSMENT_FORMATS: FormatOption[] = [
 
 export default function TeacherDashboard({ currentUser, onViewGrades, view = "generate" }: Props) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const draftKey = `quiz-hero:draft:faculty:${currentUser?.email?.toLowerCase() || "anonymous"}`;
   const [savedDraft] = useState<{
     sourceType?: SourceMaterialType;
@@ -132,7 +147,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [tfCount, setTfCount] = useState(0);
   const [idCount, setIdCount] = useState(0);
   const [openCount, setOpenCount] = useState(10);
-  const [allowRetakes, setAllowRetakes] = useState(false);
+
   const [questionTimeLimitSeconds, setQuestionTimeLimitSeconds] = useState("");
   const [timerError, setTimerError] = useState<string | null>(null);
   const timerInputRef = useRef<HTMLInputElement>(null);
@@ -145,11 +160,12 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Prepared materials (instant)
-  const [preparedMaterials, setPreparedMaterials] = useState<PreparedMaterial[]>([]);
+  // Prepared materials (hidden pre-load drawer + silent auto-matching)
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
-  const [preparingMaterial, setPreparingMaterial] = useState(false);
+  const [showPreloadDrawer, setShowPreloadDrawer] = useState(false);
+  const [preloadQueue, setPreloadQueue] = useState<PreloadQueueItem[]>([]);
   const materialInputRef = useRef<HTMLInputElement>(null);
+  const preloadChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -158,49 +174,54 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [previewTopic, setPreviewTopic] = useState("");
   const [previewQuizId, setPreviewQuizId] = useState<string | null>(null);
   const [previewReviewStatus, setPreviewReviewStatus] = useState<"draft" | "published">("draft");
+  const [isStreamingDraft, setIsStreamingDraft] = useState(false);
+  const [streamStatusMessage, setStreamStatusMessage] = useState<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [assessmentSearch, setAssessmentSearch] = useState("");
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isLoading) {
-      setElapsedSeconds(0);
-      interval = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
+    return () => {
+      streamAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const interval = window.setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(interval);
   }, [isLoading]);
 
   const getLoadingStep = (sec: number) => {
+    if (generationMode === "complex") {
+      if (sec < 4) return "Reading source, equations & figures...";
+      if (sec < 10) return "Analyzing complex concepts & visuals...";
+      if (sec < 20) return "Synthesizing assessment sections in parallel...";
+      if (sec < 35) return "Verifying answers & reasoning steps...";
+      return "Finalizing complex assessment (up to 65s)...";
+    }
     if (sec < 4) return "Reading topic & source material...";
-    if (sec < 9) return "Groq is extracting concepts...";
+    if (sec < 9) return "Extracting key concepts...";
     if (sec < 15) return "Synthesizing balanced questions & options...";
     if (sec < 22) return "Validating answer keys & explanations...";
-    return "Groq is still processing the source...";
+    return "Still processing the source...";
   };
 
   const { data: quizzes = [], isLoading: loadingQuizzes, refetch: loadQuizzes } = useQuery({
     queryKey: ["quizzes", "teacher"],
     queryFn: () => fetchQuizzes(),
   });
-  const { data: classrooms = [], refetch: loadClassrooms } = useQuery({
+  const { data: classrooms = [] } = useQuery({
     queryKey: ["classrooms", "teacher"],
     queryFn: fetchClassrooms,
   });
 
-  const loadMaterials = async () => {
-    try {
-      const list = await fetchMaterials();
-      setPreparedMaterials(list);
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    loadMaterials();
-  }, []);
+  const { data: preparedMaterials = [], refetch: loadMaterials } = useQuery({
+    queryKey: ["materials", "teacher"],
+    queryFn: fetchMaterials,
+  });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingQuiz, setEditingQuiz] = useState<{ id: string; topic: string } | null>(null);
@@ -216,6 +237,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
   const [drawerQuiz, setDrawerQuiz] = useState<{ id: string; topic: string } | null>(null);
   const [drawerAttempts, setDrawerAttempts] = useState<QuizAttemptItem[]>([]);
   const [selectedAttempt, setSelectedAttempt] = useState<QuizAttemptItem | null>(null);
+  const [manualFinalScore, setManualFinalScore] = useState<number | null>(null);
   const [isSavingGrade, setIsSavingGrade] = useState(false);
 
   useEffect(() => {
@@ -250,6 +272,119 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     view,
   ]);
 
+  // Hidden pre-load drawer: opens only via Ctrl+Shift+M or ?preload=1 query.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const openTimer = urlParams.get("preload") === "1"
+      ? window.setTimeout(() => setShowPreloadDrawer(true), 0)
+      : undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && (event.key === "M" || event.key === "m")) {
+        const target = event.target as HTMLElement | null;
+        const tagName = target?.tagName?.toLowerCase();
+        if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+        event.preventDefault();
+        setShowPreloadDrawer((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (openTimer !== undefined) window.clearTimeout(openTimer);
+    };
+  }, [view]);
+
+  // Keep the prepared-materials list fresh while any material is still processing.
+  useEffect(() => {
+    if (!preparedMaterials.some((material) => material.status === "processing")) return;
+    const interval = window.setInterval(() => {
+      void loadMaterials();
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [preparedMaterials, loadMaterials]);
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const computeFileFingerprint = async (file: File): Promise<FileFingerprint> => {
+    try {
+      if (typeof crypto !== "undefined" && crypto.subtle) {
+        const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const hex = Array.from(new Uint8Array(digest))
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join("");
+        return { key: hex, kind: "sha256" };
+      }
+    } catch {
+      // Fall through to the filename-based fingerprint below.
+    }
+    return { key: file.name.toLowerCase(), kind: "filename" };
+  };
+
+  const findMaterialByFingerprint = (
+    materials: PreparedMaterial[],
+    fingerprint: FileFingerprint
+  ): PreparedMaterial | undefined =>
+    materials.find((material) =>
+      fingerprint.kind === "sha256"
+        ? material.file_hash === fingerprint.key
+        : material.filename.toLowerCase() === fingerprint.key
+    );
+
+  const awaitMaterialReady = async (materialId: number): Promise<boolean> => {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const materials = await fetchMaterials();
+      void loadMaterials();
+      const material = materials.find((entry) => entry.id === materialId);
+      if (!material || material.status === "failed") return false;
+      if (material.status === "ready") return true;
+    }
+    return false;
+  };
+
+  const runSilentAutoMatch = async (file: File, fingerprint: FileFingerprint): Promise<number | null> => {
+    try {
+      const materials = await fetchMaterials();
+      const existing = findMaterialByFingerprint(materials, fingerprint);
+      if (existing) {
+        if (existing.status === "ready") {
+          setSelectedMaterialId(existing.id);
+          return existing.id;
+        }
+        if (existing.status === "failed") {
+          await retryMaterial(existing.id);
+          void loadMaterials();
+        }
+        const ready = await awaitMaterialReady(existing.id);
+        if (ready) setSelectedMaterialId(existing.id);
+        return ready ? existing.id : null;
+      }
+
+      // Not cached yet — silently pre-warm extraction before Generate is pressed.
+      const base64 = await readFileAsBase64(file);
+      const prepared = await prepareMaterial({
+        filename: file.name,
+        file_base64: base64,
+        file_mime_type: file.type,
+      });
+      void loadMaterials();
+      const ready = prepared.status === "ready" || (await awaitMaterialReady(prepared.id));
+      if (ready) setSelectedMaterialId(prepared.id);
+      return ready ? prepared.id : null;
+    } catch {
+      // Silent cache warm-up must never disturb the normal upload flow.
+      return null;
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -261,6 +396,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
     setError("");
     setSelectedFile(file);
+    setSelectedMaterialId(null);
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -275,54 +411,80 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       }
     };
     reader.readAsDataURL(file);
+
+    // Silent cache auto-match / background warm-up for PDF & DOCX sources.
+    const isPreparable = /\.(pdf|docx)$/i.test(file.name) || file.type === "application/pdf";
+    if (!isPreparable) return;
+    void (async () => {
+      const fingerprint = await computeFileFingerprint(file);
+      await runSilentAutoMatch(file, fingerprint);
+    })();
   };
 
   const handleClearFile = () => {
     setSelectedFile(null);
     setFileBase64(null);
     setFilePreviewUrl(null);
+    setSelectedMaterialId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handlePreloadMaterial = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 15 * 1024 * 1024) {
-      setError("File size exceeds 15MB limit.");
-      if (materialInputRef.current) materialInputRef.current.value = "";
-      return;
-    }
-    setError("");
-    setPreparingMaterial(true);
-    try {
-      const reader = new FileReader();
-      const base64: string = await new Promise((resolve, reject) => {
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      await prepareMaterial({ filename: file.name, file_base64: base64, file_mime_type: file.type });
-      await loadMaterials();
-      // poll while processing
-      let attempts = 0;
-      const poll = async () => {
-        if (attempts > 30) return;
-        attempts += 1;
-        await loadMaterials();
-        setPreparedMaterials((prev) => {
-          if (prev.some((m) => m.status === "processing")) {
-            window.setTimeout(poll, 2000);
+  const handleBatchPreload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      /\.(pdf|docx)$/i.test(file.name)
+    );
+    event.target.value = "";
+    if (files.length === 0) return;
+
+    const queued: PreloadQueueItem[] = files.map((file, index) => ({
+      id: `${Date.now()}-${index}-${file.name}`,
+      filename: file.name,
+      status: "queued",
+    }));
+    setPreloadQueue((prev) => [...prev, ...queued]);
+
+    // Process strictly one file at a time to avoid LLM rate limits and SQLite lock contention.
+    preloadChainRef.current = preloadChainRef.current.then(async () => {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const item = queued[index];
+        if (file.size > 15 * 1024 * 1024) {
+          setPreloadQueue((prev) =>
+            prev.map((entry) => (entry.id === item.id ? { ...entry, status: "failed" } : entry))
+          );
+          continue;
+        }
+        setPreloadQueue((prev) =>
+          prev.map((entry) => (entry.id === item.id ? { ...entry, status: "preparing" } : entry))
+        );
+        try {
+          const base64 = await readFileAsBase64(file);
+          let material = await prepareMaterial({
+            filename: file.name,
+            file_base64: base64,
+            file_mime_type: file.type,
+          });
+          if (material.status === "failed") {
+            material = await retryMaterial(material.id);
           }
-          return prev;
-        });
-      };
-      window.setTimeout(poll, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to prepare material.");
-    } finally {
-      setPreparingMaterial(false);
-      if (materialInputRef.current) materialInputRef.current.value = "";
-    }
+          void loadMaterials();
+          const ready =
+            material.status === "ready" ||
+            (material.status === "processing" && (await awaitMaterialReady(material.id)));
+          setPreloadQueue((prev) =>
+            prev.map((entry) =>
+              entry.id === item.id
+                ? { ...entry, status: ready ? "ready" : "failed" }
+                : entry
+            )
+          );
+        } catch {
+          setPreloadQueue((prev) =>
+            prev.map((entry) => (entry.id === item.id ? { ...entry, status: "failed" } : entry))
+          );
+        }
+      }
+    });
   };
 
   const handleRetryMaterial = async (id: number) => {
@@ -366,6 +528,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       return;
     }
 
+    setElapsedSeconds(0);
     setIsLoading(true);
     setError("");
     setSuccessMessage("");
@@ -437,7 +600,53 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         question_time_limit_seconds: timerValidation.value,
       };
 
-      const result = await publishQuiz(payload);
+      streamAbortRef.current?.abort();
+      const abortController = new AbortController();
+      streamAbortRef.current = abortController;
+      let streamedAnyQuestion = false;
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
+
+      let result;
+      try {
+        result = await publishQuizStream(payload, {
+          signal: abortController.signal,
+          onStatus: (message) => {
+            setStreamStatusMessage(message);
+          },
+          onQuestion: (question) => {
+            if (!streamedAnyQuestion) {
+              streamedAnyQuestion = true;
+              setIsStreamingDraft(true);
+              setPreviewTopic(effectiveTopic);
+              setPreviewQuizId(null);
+              setPreviewReviewStatus("draft");
+              setSuccessMessage(`Generating "${effectiveTopic}" draft...`);
+              setPreviewQuestions([question]);
+            } else {
+              setPreviewQuestions((prev) => [...(prev ?? []), question]);
+            }
+          },
+        });
+      } catch (streamErr) {
+        if (streamErr instanceof Error && streamErr.name === "AbortError") {
+          setIsStreamingDraft(false);
+          setStreamStatusMessage(null);
+          return;
+        }
+        if (streamedAnyQuestion) {
+          throw streamErr;
+        }
+        // Fallback automatically to non-streaming publishQuiz if the stream failed to start
+        result = await publishQuiz(payload);
+      } finally {
+        if (streamAbortRef.current === abortController) {
+          streamAbortRef.current = null;
+        }
+      }
+
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
       setFallbackNotice(result.fallback_notice || null);
       draftCompletedRef.current = true;
       clearDraft(draftKey);
@@ -456,6 +665,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       handleClearFile();
       loadQuizzes();
     } catch (err) {
+      setIsStreamingDraft(false);
+      setStreamStatusMessage(null);
       setError(err instanceof Error ? err.message : "Failed to generate assessment. Please try again.");
     } finally {
       setIsLoading(false);
@@ -522,6 +733,36 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
     }
   };
 
+  const getEffectivePoints = (ans: QuizAttemptAnswer) =>
+    ans.is_overridden ? Number(ans.awarded_points ?? 0) : ans.is_correct ? 1 : 0;
+
+  const computeItemTotal = (attempt: QuizAttemptItem) =>
+    Number(
+      (attempt.answers || [])
+        .reduce((sum, ans) => sum + getEffectivePoints(ans), 0)
+        .toFixed(2)
+    );
+
+  const updateAnswerOverride = (answerIndex: number, isOverridden: boolean, awardedPoints: number) => {
+    if (!selectedAttempt) return;
+    const clampedPoints = Math.min(1, Math.max(0, Number.isFinite(awardedPoints) ? awardedPoints : 0));
+    const updatedAnswers = (selectedAttempt.answers || []).map((ans, idx) =>
+      idx === answerIndex
+        ? { ...ans, is_overridden: isOverridden, awarded_points: clampedPoints }
+        : ans
+    );
+    const updatedAttempt: QuizAttemptItem = {
+      ...selectedAttempt,
+      answers: updatedAnswers,
+    };
+    updatedAttempt.final_score = computeItemTotal(updatedAttempt);
+    setSelectedAttempt(updatedAttempt);
+    setDrawerAttempts((prev) =>
+      prev.map((a) => (a.attempt_id === updatedAttempt.attempt_id ? updatedAttempt : a))
+    );
+    setManualFinalScore(null);
+  };
+
   const openSubmissionDrawer = async (quizId: string, quizTopic: string) => {
     setAssignmentError("");
     setDrawerQuiz({ id: quizId, topic: quizTopic });
@@ -532,10 +773,16 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       setDrawerAttempts(attempts);
       setSelectedAttempt(first);
       setFacultyRemarks(first?.faculty_remarks || "");
+      setManualFinalScore(
+        first && first.adjusted_score !== null && first.adjusted_score !== computeItemTotal(first)
+          ? first.adjusted_score
+          : null
+      );
       setShowSubmissionDrawer(true);
     } catch (err) {
       setDrawerAttempts([]);
       setSelectedAttempt(null);
+      setManualFinalScore(null);
       setAssignmentError(err instanceof Error ? err.message : "Failed to load submissions.");
     }
   };
@@ -547,13 +794,21 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
       const overrides = (selectedAttempt.answers || []).map((ans, idx) => ({
         answer_index: idx,
         is_overridden: Boolean(ans.is_overridden),
-        awarded_points: Number(ans.awarded_points ?? (ans.is_correct ? 1 : 0)),
+        awarded_points: getEffectivePoints(ans),
       }));
-      await gradeFacultyAttempt(selectedAttempt.attempt_id, overrides, undefined, facultyRemarks, true);
+      await gradeFacultyAttempt(
+        selectedAttempt.attempt_id,
+        overrides,
+        manualFinalScore !== null ? manualFinalScore : undefined,
+        facultyRemarks,
+        true
+      );
+      await queryClient.invalidateQueries({ queryKey: ["grades"] });
       setShowSubmissionDrawer(false);
       setDrawerQuiz(null);
       setDrawerAttempts([]);
       setSelectedAttempt(null);
+      setManualFinalScore(null);
       setFacultyRemarks("");
       loadQuizzes();
     } catch (err) {
@@ -755,16 +1010,26 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
     return (
       <div className="view-transition space-y-6">
-        <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex items-start gap-3.5 text-white shadow-md">
-          <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
-            <p className="text-xs text-white/70 mt-0.5">
-              {previewReviewStatus === "draft"
-                ? "Review the generated content and answer key before making it available to students."
-                : "This assessment has been verified and published to the assigned students."}
-            </p>
+        <div className="p-5 bg-cvsu-dark border border-cvsu-vibrant/30 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-white shadow-md">
+          <div className="flex items-start gap-3.5">
+            <IconCheckCircle size={22} className="text-cvsu-vibrant shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-cvsu-vibrant">{successMessage}</p>
+              <p className="text-xs text-white/70 mt-0.5">
+                {isStreamingDraft
+                  ? (streamStatusMessage || "Questions are appearing live as each section finishes.")
+                  : previewReviewStatus === "draft"
+                    ? "Review the generated content and answer key before making it available to students."
+                    : "This assessment has been verified and published to the assigned students."}
+              </p>
+            </div>
           </div>
+          {isStreamingDraft && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-cvsu-vibrant/40 bg-white/10 px-3 py-1 text-xs font-semibold text-cvsu-vibrant">
+              <span className="h-2 w-2 rounded-full bg-cvsu-vibrant animate-pulse" />
+              Generating remaining questions...
+            </span>
+          )}
         </div>
 
         <TeacherQuizPreview
@@ -772,6 +1037,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
           questions={previewQuestions}
           quizType={quizType}
           onBack={() => {
+            streamAbortRef.current?.abort();
+            setIsStreamingDraft(false);
+            setStreamStatusMessage(null);
             setPreviewQuestions(null);
             setSuccessMessage("");
             setPreviewQuizId(null);
@@ -781,7 +1049,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700" role="alert">{error}</p>}
 
-        {previewQuizId && previewReviewStatus === "draft" && (
+        {previewQuizId && !isStreamingDraft && previewReviewStatus === "draft" && (
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
@@ -804,6 +1072,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         <button
           type="button"
           onClick={() => {
+            streamAbortRef.current?.abort();
+            setIsStreamingDraft(false);
+            setStreamStatusMessage(null);
             setPreviewQuestions(null);
             setSuccessMessage("");
             setPreviewQuizId(null);
@@ -872,6 +1143,11 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                       onClick={() => {
                         setSelectedAttempt(attempt);
                         setFacultyRemarks(attempt.faculty_remarks || "");
+                        setManualFinalScore(
+                          attempt.adjusted_score !== null && attempt.adjusted_score !== computeItemTotal(attempt)
+                            ? attempt.adjusted_score
+                            : null
+                        );
                       }}
                       className={`rounded-full px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
                         isCurrent
@@ -909,20 +1185,67 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
               ) : (
                 <div className="space-y-4">
                   {selectedAttempt.answers?.length ? (
-                    selectedAttempt.answers.map((item, idx) => (
+                    selectedAttempt.answers.map((item, idx) => {
+                      const effectivePoints = getEffectivePoints(item);
+                      const isEffectiveCorrect = effectivePoints > 0;
+                      return (
                       <div
                         key={idx}
                         className={`p-4 rounded-2xl border text-xs space-y-2 transition-all ${
-                          item.is_correct ? "bg-white border-stone-200" : "bg-red-50/50 border-red-200"
+                          isEffectiveCorrect ? "bg-white border-stone-200" : "bg-red-50/50 border-red-200"
                         }`}
                       >
-                        <div className="flex items-start gap-2.5 font-bold text-[#1C1C1C]">
-                          {item.is_correct ? (
-                            <IconCheckCircle size={18} className="text-cvsu-green shrink-0 mt-0.5" />
-                          ) : (
-                            <span className="text-red-600 shrink-0 mt-0.5 font-bold">✕</span>
-                          )}
-                          <span>{idx + 1}. {item.question}</span>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 font-bold text-[#1C1C1C] flex-1 min-w-0">
+                            {isEffectiveCorrect ? (
+                              <IconCheckCircle size={18} className="text-cvsu-green shrink-0 mt-0.5" />
+                            ) : (
+                              <span className="text-red-600 shrink-0 mt-0.5 font-bold">✕</span>
+                            )}
+                            <span>{idx + 1}. {item.question}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateAnswerOverride(idx, true, isEffectiveCorrect ? 0 : 1)
+                              }
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
+                                isEffectiveCorrect
+                                  ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                                  : "bg-cvsu-light text-cvsu-green border-cvsu-green/30 hover:bg-cvsu-green hover:text-white"
+                              }`}
+                            >
+                              {isEffectiveCorrect ? "Mark Incorrect" : "Mark Correct"}
+                            </button>
+                            <label className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-stone-600">
+                              <span>Pts:</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.5}
+                                aria-label={`Points for question ${idx + 1}`}
+                                value={effectivePoints}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  updateAnswerOverride(idx, true, Number.isNaN(val) ? 0 : val);
+                                }}
+                                className="w-11 text-center font-mono font-bold text-[#1C1C1C] bg-transparent outline-none"
+                              />
+                            </label>
+                            {item.is_overridden && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateAnswerOverride(idx, false, item.is_correct ? 1 : 0)
+                                }
+                                className="px-2 py-1 rounded-full text-[11px] font-semibold text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-colors cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         <div className="pl-6 space-y-1">
@@ -938,9 +1261,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                           </p>
                           <p className="text-stone-500">
                             Status:{" "}
-                            <span className="font-bold text-cvsu-green">
+                            <span className={`font-bold ${isEffectiveCorrect ? "text-cvsu-green" : "text-red-600"}`}>
                               {item.is_overridden
-                                ? `Overridden (${item.awarded_points} pts)`
+                                ? `Overridden (${effectivePoints} pt${effectivePoints === 1 ? "" : "s"})`
                                 : item.is_correct
                                   ? "Auto-graded correct"
                                   : "Auto-graded incorrect"}
@@ -948,7 +1271,8 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
                           </p>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="text-xs text-stone-500 text-center py-6">
                       No itemized answer breakdown recorded for this submission.
@@ -961,13 +1285,50 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             {selectedAttempt && (
               <div className="p-6 border-t border-stone-200 bg-white shrink-0">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
-                  <div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-stone-500">
+                      AI Score: {selectedAttempt.ai_score ?? selectedAttempt.raw_score} / {selectedAttempt.total_items}
+                    </p>
                     <p className="text-sm text-stone-500">
                       Raw Score: {selectedAttempt.raw_score} / {selectedAttempt.total_items}
                     </p>
-                    <p className="text-sm font-bold text-[#1C1C1C]">
-                      Final Score: {selectedAttempt.final_score} / {selectedAttempt.total_items}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label htmlFor="faculty-final-score" className="text-sm font-bold text-[#1C1C1C]">
+                        Final Score:
+                      </label>
+                      <input
+                        id="faculty-final-score"
+                        type="number"
+                        min={0}
+                        max={selectedAttempt.total_items}
+                        step={0.5}
+                        value={manualFinalScore ?? computeItemTotal(selectedAttempt)}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (Number.isNaN(val)) {
+                            setManualFinalScore(0);
+                          } else {
+                            setManualFinalScore(Math.min(selectedAttempt.total_items, Math.max(0, val)));
+                          }
+                        }}
+                        className="w-16 rounded-xl border border-stone-300 px-2.5 py-1 text-sm font-mono font-bold text-[#1C1C1C] outline-none focus:border-cvsu-green focus:ring-2 focus:ring-cvsu-green/10"
+                      />
+                      <span className="text-sm font-bold text-[#1C1C1C]">
+                        / {selectedAttempt.total_items}
+                      </span>
+                      {manualFinalScore !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setManualFinalScore(null)}
+                          className="text-xs font-semibold text-stone-500 hover:text-cvsu-green underline cursor-pointer"
+                        >
+                          Auto
+                        </button>
+                      )}
+                      {selectedAttempt.grading_status === "teacher_reviewed" && (
+                        <span className="text-xs font-semibold text-cvsu-green">(Teacher-reviewed)</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex-1 sm:max-w-md space-y-2">
                     <textarea
@@ -1246,80 +1607,6 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
             </div>
           </div>
         )}
-
-        {/* Prepared Materials (Instant) */}
-        <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-stone-700">Prepared Materials (Instant)</p>
-              <p className="text-[11px] text-stone-500">Pre-load a PDF once; reuse it instantly without re-uploading.</p>
-            </div>
-            <label className="cursor-pointer rounded-full border border-cvsu-green/40 bg-cvsu-light px-3.5 py-1.5 text-xs font-bold text-cvsu-green hover:bg-cvsu-green hover:text-white transition-colors">
-              {preparingMaterial ? "Preparing..." : "Pre-load PDF"}
-              <input
-                ref={materialInputRef}
-                type="file"
-                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={handlePreloadMaterial}
-                className="hidden"
-                disabled={preparingMaterial}
-              />
-            </label>
-          </div>
-
-          {preparedMaterials.length === 0 ? (
-            <p className="text-[11px] text-stone-400">No prepared materials yet.</p>
-          ) : (
-            <div className="space-y-2">
-              <select
-                value={selectedMaterialId ?? ""}
-                onChange={(e) => setSelectedMaterialId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-xs text-[#1C1C1C] focus:outline-none focus:ring-2 focus:ring-cvsu-green/20"
-              >
-                <option value="">None selected</option>
-                {preparedMaterials.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.filename} — {m.status === "processing" ? "Preparing..." : m.status === "ready" ? "Ready" : "Failed"}
-                  </option>
-                ))}
-              </select>
-
-              <ul className="space-y-1.5">
-                {preparedMaterials.map((m) => {
-                  const status = m.status;
-                  return (
-                    <li key={m.id} className="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-[#F7F7F2]/60 px-3 py-2 text-xs">
-                      <span className="truncate font-mono text-[#1C1C1C]">{m.filename}</span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {status === "processing" && (
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Preparing...</span>
-                        )}
-                        {status === "ready" && (
-                          <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2 py-0.5 text-[10px] font-bold text-cvsu-green">Ready ⚡</span>
-                        )}
-                        {status === "failed" && (
-                          <>
-                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Failed</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRetryMaterial(m.id)}
-                              className="rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-[10px] font-bold text-stone-700 hover:bg-stone-100"
-                            >
-                              Retry
-                            </button>
-                          </>
-                        )}
-                        {selectedMaterialId === m.id && (
-                          <span className="text-[10px] font-bold text-cvsu-green">Selected</span>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
 
         {/* 2. Assessment Format Selection */}
         <div>
@@ -1619,7 +1906,7 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
               className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${generationMode === "complex" ? "border-cvsu-green bg-cvsu-light text-cvsu-dark" : "border-amber-200 bg-white text-slate-700"}`}
             >
               Complex Mode
-              <span className="block text-[10px] font-medium text-slate-500">Best for math, diagrams, tables, and scanned PDFs</span>
+              <span className="block text-[10px] font-medium text-slate-500">Best for math, diagrams, tables, and scanned PDFs (deeper reasoning)</span>
             </button>
           </div>
         </div>
@@ -1664,7 +1951,9 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
 
         {isLoading && (
           <p className="text-center text-xs text-stone-500 animate-pulse font-medium">
-            Groq is generating questions. Large or scanned PDFs may take longer; please keep this tab open.
+            {generationMode === "complex"
+              ? "Complex Mode is running parallel section reasoning. Scanned or visual PDFs may take up to 65s; please keep this tab open."
+              : "AI is generating questions. Large or scanned PDFs may take longer; please keep this tab open."}
           </p>
         )}
 
@@ -1817,6 +2106,130 @@ export default function TeacherDashboard({ currentUser, onViewGrades, view = "ge
         )}
       </div>
         </>
+      )}
+
+      {/* Hidden Material Pre-Load Drawer (Ctrl+Shift+M or ?preload=1) */}
+      {showPreloadDrawer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="preload-drawer-title"
+        >
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 id="preload-drawer-title" className="font-syne text-lg text-[#1C1C1C]">
+                  Material Pre-Load Manager
+                </h3>
+                <p className="mt-1 text-xs text-stone-500">
+                  Cache course PDFs/DOCX files so generation reuses them instantly. Press{" "}
+                  <kbd className="rounded border border-stone-300 bg-[#F7F7F2] px-1.5 py-0.5 font-mono text-[10px] font-bold text-stone-700">
+                    Ctrl + Shift + M
+                  </kbd>{" "}
+                  to reopen this drawer.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close pre-load manager"
+                onClick={() => setShowPreloadDrawer(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-stone-600 hover:text-stone-800 border border-stone-200 font-bold flex items-center justify-center text-xs shrink-0 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <label className="mt-5 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-stone-300 bg-[#F7F7F2]/60 px-4 py-5 text-xs font-bold text-stone-600 hover:border-cvsu-green hover:text-cvsu-green transition-colors">
+              <IconUpload size={16} />
+              Select one or more PDF / DOCX files to pre-load
+              <input
+                ref={materialInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx"
+                onChange={handleBatchPreload}
+                className="hidden"
+              />
+            </label>
+            <p className="mt-1.5 text-[11px] text-stone-400">
+              Files are processed one at a time to stay within AI rate limits.
+            </p>
+
+            {preloadQueue.length > 0 && (
+              <div className="mt-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Batch queue</p>
+                <ul className="mt-2 space-y-1.5">
+                  {preloadQueue.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-[#F7F7F2]/60 px-3 py-2 text-xs"
+                    >
+                      <span className="truncate font-mono text-[#1C1C1C]">{item.filename}</span>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                          item.status === "queued"
+                            ? "border-stone-300 bg-white text-stone-600"
+                            : item.status === "preparing"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : item.status === "ready"
+                                ? "border-cvsu-green/30 bg-cvsu-light text-cvsu-green"
+                                : "border-red-200 bg-red-50 text-red-700"
+                        }`}
+                      >
+                        {item.status === "queued"
+                          ? "Queued"
+                          : item.status === "preparing"
+                            ? "Preparing..."
+                            : item.status === "ready"
+                              ? "Ready ⚡"
+                              : "Failed"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-5 border-t border-stone-200 pt-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Prepared materials</p>
+              {preparedMaterials.length === 0 ? (
+                <p className="mt-2 text-[11px] text-stone-400">No prepared materials yet.</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {preparedMaterials.map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs"
+                    >
+                      <span className="truncate font-mono text-[#1C1C1C]">{m.filename}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {m.status === "processing" && (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Preparing...</span>
+                        )}
+                        {m.status === "ready" && (
+                          <span className="rounded-full border border-cvsu-green/30 bg-cvsu-light px-2 py-0.5 text-[10px] font-bold text-cvsu-green">Ready ⚡</span>
+                        )}
+                        {m.status === "failed" && (
+                          <>
+                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Failed</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRetryMaterial(m.id)}
+                              className="rounded-full border border-stone-300 bg-white px-2.5 py-0.5 text-[10px] font-bold text-stone-700 hover:bg-stone-100 cursor-pointer"
+                            >
+                              Retry
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {editingQuiz && (

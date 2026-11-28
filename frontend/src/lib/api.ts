@@ -16,7 +16,7 @@ import {
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
 
 // Helper to attach JWT token
-export async function fetchWithAuth(url: string, options: RequestInit = {}) {
+export async function fetchWithAuth<T = unknown>(url: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("cvsu_token") : null;
   const headers = new Headers(options.headers || {});
   
@@ -54,18 +54,18 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   
   // Handle empty/non-JSON responses safely (e.g. 204 No Content).
   if (response.status === 204) {
-    return null as any;
+    return null as T;
   }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     const text = await response.text();
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as T;
     } catch {
-      return text as any;
+      return text as T;
     }
   }
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 export class ApiError extends Error {
@@ -137,13 +137,136 @@ export async function fetchCurrentUser(): Promise<CvSUUser> {
   return fetchWithAuth(`${API_URL}/api/auth/me`);
 }
 
+export type PublishQuizResponse = {
+  quiz: {
+    id: string;
+    topic: string;
+    quiz_type: string;
+    question_count: number;
+    review_status: "draft" | "published";
+    question_time_limit_seconds?: number | null;
+    questions: Question[];
+  };
+  fallback_notice?: string | null;
+  served_from_cache?: boolean;
+};
+
+export type PublishQuizStreamCallbacks = {
+  onStatus?: (message: string) => void;
+  onQuestion?: (question: Question, section?: string) => void;
+  signal?: AbortSignal;
+};
+
 export async function publishQuiz(
   payload: QuizPublishPayload
-): Promise<{ quiz: { id: string; topic: string; quiz_type: string; question_count: number; review_status: "draft" | "published"; question_time_limit_seconds?: number | null; questions: Question[] }; fallback_notice?: string | null }> {
+): Promise<PublishQuizResponse> {
   return fetchWithAuth(`${API_URL}/publish-quiz`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function publishQuizStream(
+  payload: QuizPublishPayload,
+  callbacks: PublishQuizStreamCallbacks = {}
+): Promise<PublishQuizResponse> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("cvsu_token") : null;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_URL}/publish-quiz-stream`, {
+    method: "POST",
+    cache: "no-store",
+    headers,
+    body: JSON.stringify(payload),
+    signal: callbacks.signal,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("cvsu_token");
+      localStorage.removeItem("cvsu_user");
+    }
+    let errorDetail = "Failed to start assessment stream";
+    try {
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const errorData = await response.json();
+        errorDetail = errorData.detail || errorDetail;
+      } else {
+        const text = await response.text();
+        errorDetail = text || response.statusText || errorDetail;
+      }
+    } catch {
+      errorDetail = response.statusText || errorDetail;
+    }
+    throw new ApiError(errorDetail, response.status);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body is unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let finalResult: PublishQuizResponse | null = null;
+
+  const processLine = (rawLine: string) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const evt = JSON.parse(line) as
+      | { event: "status"; message?: string }
+      | { event: "question"; section?: string; data: Question }
+      | {
+          event: "done";
+          quiz_id?: string;
+          quiz: PublishQuizResponse["quiz"];
+          fallback_notice?: string | null;
+          served_from_cache?: boolean;
+        }
+      | { event: "error"; detail?: string };
+
+    if (evt.event === "status" && evt.message) {
+      callbacks.onStatus?.(evt.message);
+    } else if (evt.event === "question" && evt.data) {
+      callbacks.onQuestion?.(evt.data, evt.section);
+    } else if (evt.event === "done" && evt.quiz) {
+      finalResult = {
+        quiz: evt.quiz,
+        fallback_notice: evt.fallback_notice,
+        served_from_cache: evt.served_from_cache,
+      };
+    } else if (evt.event === "error") {
+      throw new ApiError(evt.detail || "Assessment generation failed.", 502);
+    }
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        processLine(line);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      processLine(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!finalResult) {
+    throw new Error("Assessment stream ended before saving draft.");
+  }
+  return finalResult;
 }
 
 export async function publishAssessment(
@@ -153,7 +276,7 @@ export async function publishAssessment(
 }
 
 export async function fetchQuizzes(): Promise<PublishedQuiz[]> {
-  const data = await fetchWithAuth(`${API_URL}/quizzes`);
+  const data = await fetchWithAuth<{ quizzes: PublishedQuiz[] }>(`${API_URL}/quizzes`);
   return data.quizzes;
 }
 
@@ -183,12 +306,11 @@ export async function fetchClassroomMembers(classroomId: string): Promise<{
   classroom: Classroom;
   members: ClassroomMember[];
 }> {
-  const data = await fetchWithAuth(`${API_URL}/classrooms/${classroomId}/members`);
-  return data;
+  return fetchWithAuth(`${API_URL}/classrooms/${classroomId}/members`);
 }
 
 export async function fetchFacultyAssignedAssessments(): Promise<FacultyAssignedAssessment[]> {
-  const data = await fetchWithAuth(`${API_URL}/faculty-assigned-assessments`);
+  const data = await fetchWithAuth<{ quizzes: FacultyAssignedAssessment[] }>(`${API_URL}/faculty-assigned-assessments`);
   return data.quizzes;
 }
 
@@ -208,10 +330,12 @@ export async function fetchQuizAttempts(quizId: string): Promise<{
     student_email: string;
     student_name: string;
     raw_score: number;
+    ai_score?: number;
     adjusted_score: number | null;
     final_score: number;
     total_items: number;
     is_verified: boolean;
+    grading_status?: string;
     faculty_remarks: string | null;
     reviewed_at: string | null;
     reviewed_by: number | null;
@@ -322,7 +446,7 @@ export async function submitQuiz(
 }
 
 export async function fetchGrades(): Promise<GradeSubmission[]> {
-  const data = await fetchWithAuth(`${API_URL}/grades`);
+  const data = await fetchWithAuth<{ submissions: GradeSubmission[] }>(`${API_URL}/grades`);
   return data.submissions;
 }
 
@@ -385,7 +509,7 @@ export async function sendChatMessage(
       signal: controller.signal,
     });
 
-    return data.reply;
+    return (data as { reply: string }).reply;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("The AI service took too long to respond. Please try again.");
@@ -404,7 +528,7 @@ export interface PreparedMaterial {
   file_hash: string;
   content_hash: string;
   extracted_text: string;
-  pregenerated_questions_json?: any[] | null;
+  pregenerated_questions_json?: unknown[] | null;
   status: string;
   error_message?: string | null;
   created_at: string;
@@ -422,8 +546,8 @@ export async function prepareMaterial(payload: {
 }
 
 export async function fetchMaterials(): Promise<PreparedMaterial[]> {
-  const data = await fetchWithAuth(`${API_URL}/materials`);
-  return data?.materials ?? [];
+  const data = await fetchWithAuth<{ materials?: PreparedMaterial[] }>(`${API_URL}/materials`);
+  return data.materials ?? [];
 }
 
 export async function retryMaterial(materialId: number): Promise<PreparedMaterial> {
